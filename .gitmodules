@@ -1,0 +1,4 @@
+[submodule "wpt"]
+	path = wpt
+	shallow = true
+	url = https://github.com/web-platform-tests/wpt.git
