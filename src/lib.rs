@@ -587,7 +587,7 @@ impl deno_graph::source::Resolver for ImportMap {
 
 #[cfg(feature = "graph")]
 impl ImportMap {
-  fn as_resolver(&self) -> &dyn deno_graph::source::Resolver {
+  pub fn as_resolver(&self) -> &dyn deno_graph::source::Resolver {
     self
   }
 }
