@@ -1,9 +1,5 @@
 // Copyright 2021 the Deno authors. All rights reserved. MIT license.
 
-#[cfg(feature = "graph")]
-use anyhow;
-#[cfg(feature = "graph")]
-use deno_graph;
 use indexmap::IndexMap;
 use log::debug;
 use log::info;
