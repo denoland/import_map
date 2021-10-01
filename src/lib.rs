@@ -7,6 +7,7 @@ use serde::Serialize;
 use serde_json::Map;
 use serde_json::Value;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
@@ -516,6 +517,50 @@ impl ImportMap {
       Some(referrer.to_string()),
     ))
   }
+
+  /// This is a non-standard method that allows to add
+  /// more "imports" mappings to already existing import map.
+  ///
+  ///
+  pub fn update_imports(
+    &mut self,
+    imports: HashMap<String, String>,
+  ) -> Result<Vec<String>, ImportMapError> {
+    let mut diagnostics = vec![];
+
+    for (key, value) in imports.iter() {
+      if let Some(import_value) = self.imports.get(key) {
+        diagnostics.push(format!(
+          "\"{}\" already exists and is mapped to {:?}",
+          key, import_value
+        ));
+        continue;
+      }
+
+      let address_url =
+        match ImportMap::try_url_like_specifier(&value, &self.base_url) {
+          Some(url) => url,
+          None => {
+            diagnostics.push(format!(
+              "Invalid address \"{}\" for the specifier key {:?}.",
+              value, key
+            ));
+            continue;
+          }
+        };
+      self.imports.insert(key.to_string(), Some(address_url));
+    }
+
+    // Sort in longest and alphabetical order.
+    self.imports.sort_by(|k1, _v1, k2, _v2| match k1.cmp(k2) {
+      Ordering::Greater => Ordering::Less,
+      Ordering::Less => Ordering::Greater,
+      // JSON guarantees that there can't be duplicate keys
+      Ordering::Equal => unreachable!(),
+    });
+
+    Ok(diagnostics)
+  }
 }
 
 #[cfg(test)]
@@ -860,6 +905,65 @@ mod tests {
     assert_eq!(
       resolved.as_str(),
       "https://esm.sh/postcss-modules@4.2.2#fragment"
+    );
+  }
+
+  #[test]
+  fn update_imports() {
+    let json_map = r#"{
+      "imports": {
+        "fs": "https://example.com/1"
+      }
+    }"#;
+    let mut import_map =
+      ImportMap::from_json("https://deno.land", json_map).unwrap();
+    let mut mappings = HashMap::new();
+    mappings.insert(
+      "assert".to_string(),
+      "https://deno.land/std/node/assert.ts".to_string(),
+    );
+    mappings.insert(
+      "child_process".to_string(),
+      "https://deno.land/std/node/child_process.ts".to_string(),
+    );
+    mappings.insert(
+      "fs".to_string(),
+      "https://deno.land/std/node/fs.ts".to_string(),
+    );
+    mappings.insert(
+      "url".to_string(),
+      "https://deno.land/std/node/url.ts".to_string(),
+    );
+    let diagnostics = import_map.update_imports(mappings).unwrap();
+    assert_eq!(diagnostics.len(), 1);
+    assert!(diagnostics[0].contains("fs"));
+    assert_eq!(
+      import_map
+        .resolve("assert", "http://deno.land")
+        .unwrap()
+        .as_str(),
+      "https://deno.land/std/node/assert.ts"
+    );
+    assert_eq!(
+      import_map
+        .resolve("child_process", "http://deno.land")
+        .unwrap()
+        .as_str(),
+      "https://deno.land/std/node/child_process.ts"
+    );
+    assert_eq!(
+      import_map
+        .resolve("fs", "http://deno.land")
+        .unwrap()
+        .as_str(),
+      "https://example.com/1"
+    );
+    assert_eq!(
+      import_map
+        .resolve("url", "http://deno.land")
+        .unwrap()
+        .as_str(),
+      "https://deno.land/std/node/url.ts"
     );
   }
 }
