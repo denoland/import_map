@@ -538,7 +538,7 @@ impl ImportMap {
       }
 
       let address_url =
-        match ImportMap::try_url_like_specifier(&value, &self.base_url) {
+        match ImportMap::try_url_like_specifier(value, &self.base_url) {
           Some(url) => url,
           None => {
             diagnostics.push(format!(
