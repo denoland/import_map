@@ -530,9 +530,14 @@ impl ImportMap {
 
     for (key, value) in imports.iter() {
       if let Some(import_value) = self.imports.get(key) {
+        let import_val = if let Some(value) = import_value {
+          value.as_str()
+        } else {
+          "<invalid value>"
+        };
         diagnostics.push(format!(
-          "\"{}\" already exists and is mapped to {:?}",
-          key, import_value
+          "\"{}\" already exists and is mapped to \"{}\"",
+          key, import_val
         ));
         continue;
       }
@@ -936,7 +941,10 @@ mod tests {
     );
     let diagnostics = import_map.update_imports(mappings).unwrap();
     assert_eq!(diagnostics.len(), 1);
-    assert!(diagnostics[0].contains("fs"));
+    assert_eq!(
+      diagnostics[0],
+      "\"fs\" already exists and is mapped to \"https://example.com/1\""
+    );
     assert_eq!(
       import_map
         .resolve("assert", "http://deno.land")
