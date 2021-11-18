@@ -1,6 +1,6 @@
 [package]
 name = "import_map"
-version = "0.3.3"
+version = "0.4.0"
 authors = ["the Deno authors"]
 edition = "2018"
 license = "MIT"
@@ -14,8 +14,7 @@ exclude = [
 ]
 
 [dependencies]
-# TODO(bartlomieju): unlock when https://github.com/tkaitchuck/aHash/issues/95 is resolved
-indexmap = { version = "=1.6.2", features = ["serde"] }
+indexmap = { version = "1.7.0", features = ["serde"] }
 log = { version = "0.4.14" }
 serde = { version = "1.0.129", features = ["derive"] }
 serde_json = { version = "1.0.66", features = ["preserve_order"] }
