@@ -51,7 +51,7 @@ type UnresolvedScopesMap = IndexMap<String, UnresolvedSpecifierMap>;
 #[cfg_attr(feature = "json", derive(serde::Serialize))]
 pub struct ImportMap {
   #[cfg_attr(feature = "json", serde(skip))]
-  base_url: String,
+  base_url: Url,
 
   imports: SpecifierMap,
   scopes: ScopesMap,
@@ -65,7 +65,7 @@ pub struct ImportMapWithDiagnostics {
 
 impl ImportMap {
   pub fn new_with_diagnostics(
-    base_url: &str,
+    base_url: &Url,
     imports: UnresolvedSpecifierMap,
     scopes: UnresolvedScopesMap,
   ) -> Result<ImportMapWithDiagnostics, ImportMapError> {
@@ -78,7 +78,7 @@ impl ImportMap {
     Ok(ImportMapWithDiagnostics {
       diagnostics,
       import_map: ImportMap {
-        base_url: base_url.to_string(),
+        base_url: base_url.clone(),
         imports: normalized_imports,
         scopes: normalized_scopes,
       },
@@ -92,7 +92,7 @@ impl ImportMap {
   /// - SpecifierMap's keys are sorted in longest and alphabetic order
   fn parse_specifier_map(
     imports: &UnresolvedSpecifierMap,
-    base_url: &str,
+    base_url: &Url,
     diagnostics: &mut Vec<String>,
   ) -> SpecifierMap {
     let mut normalized_map: SpecifierMap = SpecifierMap::new();
@@ -159,24 +159,23 @@ impl ImportMap {
   /// - ScopeMap's keys are sorted in longest and alphabetic order
   fn parse_scope_map(
     scope_map: &UnresolvedScopesMap,
-    base_url: &str,
+    base_url: &Url,
     diagnostics: &mut Vec<String>,
   ) -> Result<ScopesMap, ImportMapError> {
     let mut normalized_map: ScopesMap = ScopesMap::new();
 
     // Order is preserved because of "preserve_order" feature of "serde_json".
     for (scope_prefix, potential_specifier_map) in scope_map.iter() {
-      let scope_prefix_url =
-        match Url::parse(base_url).unwrap().join(scope_prefix) {
-          Ok(url) => url.to_string(),
-          _ => {
-            diagnostics.push(format!(
-              "Invalid scope \"{}\" (parsed against base URL \"{}\").",
-              scope_prefix, base_url
-            ));
-            continue;
-          }
-        };
+      let scope_prefix_url = match base_url.join(scope_prefix) {
+        Ok(url) => url.to_string(),
+        _ => {
+          diagnostics.push(format!(
+            "Invalid scope \"{}\" (parsed against base URL \"{}\").",
+            scope_prefix, base_url
+          ));
+          continue;
+        }
+      };
 
       let norm_map = ImportMap::parse_specifier_map(
         potential_specifier_map,
@@ -198,15 +197,13 @@ impl ImportMap {
     Ok(normalized_map)
   }
 
-  fn try_url_like_specifier(specifier: &str, base: &str) -> Option<Url> {
+  fn try_url_like_specifier(specifier: &str, base: &Url) -> Option<Url> {
     if specifier.starts_with('/')
       || specifier.starts_with("./")
       || specifier.starts_with("../")
     {
-      if let Ok(base_url) = Url::parse(base) {
-        if let Ok(url) = base_url.join(specifier) {
-          return Some(url);
-        }
+      if let Ok(url) = base.join(specifier) {
+        return Some(url);
       }
     }
 
@@ -223,7 +220,7 @@ impl ImportMap {
   /// or "bare" specifiers (eg. "moment").
   fn normalize_specifier_key(
     specifier_key: &str,
-    base_url: &str,
+    base_url: &Url,
     diagnostics: &mut Vec<String>,
   ) -> Option<String> {
     // ignore empty keys
@@ -409,7 +406,7 @@ impl ImportMap {
   pub fn resolve(
     &self,
     specifier: &str,
-    referrer: &str,
+    referrer: &Url,
   ) -> Result<Url, ImportMapError> {
     let as_url: Option<Url> =
       ImportMap::try_url_like_specifier(specifier, referrer);
@@ -510,7 +507,7 @@ mod test {
   #[test]
   pub fn imports_only() {
     let result = ImportMap::new_with_diagnostics(
-      "https://deno.land",
+      &Url::parse("https://deno.land").unwrap(),
       {
         let mut map = IndexMap::new();
         map

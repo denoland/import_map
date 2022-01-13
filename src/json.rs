@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use indexmap::IndexMap;
 use serde_json::Map;
 use serde_json::Value;
+use url::Url;
 
 use crate::ImportMap;
 use crate::ImportMapError;
@@ -12,7 +13,7 @@ use crate::UnresolvedSpecifierMap;
 
 impl ImportMap {
   pub fn from_json_with_diagnostics(
-    base_url: &str,
+    base_url: &Url,
     json_string: &str,
   ) -> Result<ImportMapWithDiagnostics, ImportMapError> {
     let mut v: Value = match serde_json::from_str(json_string) {
@@ -164,7 +165,7 @@ mod tests {
   struct ImportMapTestCase {
     name: String,
     import_map: String,
-    import_map_base_url: String,
+    import_map_base_url: Url,
     kind: TestKind,
   }
 
@@ -215,12 +216,12 @@ mod tests {
       maybe_name_prefix: Option<String>,
       maybe_import_map: Option<String>,
       maybe_base_url: Option<String>,
-      maybe_import_map_base_url: Option<String>,
+      maybe_import_map_base_url: Option<Url>,
       maybe_expected_import_map: Option<Value>,
     ) -> Vec<ImportMapTestCase> {
       let maybe_import_map_base_url =
         if let Some(base_url) = test_obj.get("importMapBaseURL") {
-          Some(base_url.as_str().unwrap().to_string())
+          Some(Url::parse(&base_url.as_str().unwrap().to_string()).unwrap())
         } else {
           maybe_import_map_base_url
         };
@@ -331,7 +332,7 @@ mod tests {
           .unwrap()
           .import_map;
           let maybe_resolved = import_map
-            .resolve(given_specifier, base_url)
+            .resolve(given_specifier, &Url::parse(base_url).unwrap())
             .ok()
             .map(|url| url.to_string());
           assert_eq!(expected_specifier, &maybe_resolved, "{}", test.name);
@@ -373,23 +374,23 @@ mod tests {
 
   #[test]
   fn from_json_1() {
-    let base_url = "https://deno.land";
+    let base_url = Url::parse("https://deno.land").unwrap();
 
     // empty JSON
-    assert!(ImportMap::from_json_with_diagnostics(base_url, "{}").is_ok());
+    assert!(ImportMap::from_json_with_diagnostics(&base_url, "{}").is_ok());
 
     let non_object_strings = vec!["null", "true", "1", "\"foo\"", "[]"];
 
     // invalid JSON
     for non_object in non_object_strings.to_vec() {
       assert!(
-        ImportMap::from_json_with_diagnostics(base_url, non_object).is_err()
+        ImportMap::from_json_with_diagnostics(&base_url, non_object).is_err()
       );
     }
 
     // invalid JSON message test
     assert_eq!(
-      ImportMap::from_json_with_diagnostics(base_url, "{\"a\":1,}")
+      ImportMap::from_json_with_diagnostics(&base_url, "{\"a\":1,}")
         .unwrap_err()
         .to_string(),
       "Unable to parse import map JSON: trailing comma at line 1 column 8",
@@ -398,7 +399,7 @@ mod tests {
     // invalid schema: 'imports' is non-object
     for non_object in non_object_strings.to_vec() {
       assert!(ImportMap::from_json_with_diagnostics(
-        base_url,
+        &base_url,
         &format!("{{\"imports\": {}}}", non_object),
       )
       .is_err());
@@ -407,7 +408,7 @@ mod tests {
     // invalid schema: 'scopes' is non-object
     for non_object in non_object_strings.to_vec() {
       assert!(ImportMap::from_json_with_diagnostics(
-        base_url,
+        &base_url,
         &format!("{{\"scopes\": {}}}", non_object),
       )
       .is_err());
@@ -423,8 +424,10 @@ mod tests {
         "fizz": null
       }
     }"#;
-    let result =
-      ImportMap::from_json_with_diagnostics("https://deno.land", json_map);
+    let result = ImportMap::from_json_with_diagnostics(
+      &Url::parse("https://deno.land").unwrap(),
+      json_map,
+    );
     assert!(result.is_ok());
   }
 
@@ -458,13 +461,18 @@ mod tests {
         "npm/": "https://esm.sh/"
       }
     }"#;
-    let import_map =
-      ImportMap::from_json_with_diagnostics("https://deno.land", json_map)
-        .unwrap()
-        .import_map;
+    let import_map = ImportMap::from_json_with_diagnostics(
+      &Url::parse("https://deno.land").unwrap(),
+      json_map,
+    )
+    .unwrap()
+    .import_map;
 
     let resolved = import_map
-      .resolve("npm/postcss-modules@4.2.2?no-check", "https://deno.land")
+      .resolve(
+        "npm/postcss-modules@4.2.2?no-check",
+        &Url::parse("https://deno.land").unwrap(),
+      )
       .unwrap();
     assert_eq!(
       resolved.as_str(),
@@ -472,14 +480,14 @@ mod tests {
     );
 
     let resolved = import_map
-      .resolve("npm/key/a?b?c", "https://deno.land")
+      .resolve("npm/key/a?b?c", &Url::parse("https://deno.land").unwrap())
       .unwrap();
     assert_eq!(resolved.as_str(), "https://esm.sh/key/a?b?c");
 
     let resolved = import_map
       .resolve(
         "npm/postcss-modules@4.2.2?no-check#fragment",
-        "https://deno.land",
+        &Url::parse("https://deno.land").unwrap(),
       )
       .unwrap();
     assert_eq!(
@@ -488,7 +496,10 @@ mod tests {
     );
 
     let resolved = import_map
-      .resolve("npm/postcss-modules@4.2.2#fragment", "https://deno.land")
+      .resolve(
+        "npm/postcss-modules@4.2.2#fragment",
+        &Url::parse("https://deno.land").unwrap(),
+      )
       .unwrap();
     assert_eq!(
       resolved.as_str(),
@@ -503,10 +514,12 @@ mod tests {
         "fs": "https://example.com/1"
       }
     }"#;
-    let mut import_map =
-      ImportMap::from_json_with_diagnostics("https://deno.land", json_map)
-        .unwrap()
-        .import_map;
+    let mut import_map = ImportMap::from_json_with_diagnostics(
+      &Url::parse("https://deno.land").unwrap(),
+      json_map,
+    )
+    .unwrap()
+    .import_map;
     let mut mappings = HashMap::new();
     mappings.insert(
       "assert".to_string(),
@@ -532,28 +545,28 @@ mod tests {
     );
     assert_eq!(
       import_map
-        .resolve("assert", "http://deno.land")
+        .resolve("assert", &Url::parse("https://deno.land").unwrap())
         .unwrap()
         .as_str(),
       "https://deno.land/std/node/assert.ts"
     );
     assert_eq!(
       import_map
-        .resolve("child_process", "http://deno.land")
+        .resolve("child_process", &Url::parse("https://deno.land").unwrap())
         .unwrap()
         .as_str(),
       "https://deno.land/std/node/child_process.ts"
     );
     assert_eq!(
       import_map
-        .resolve("fs", "http://deno.land")
+        .resolve("fs", &Url::parse("https://deno.land").unwrap())
         .unwrap()
         .as_str(),
       "https://example.com/1"
     );
     assert_eq!(
       import_map
-        .resolve("url", "http://deno.land")
+        .resolve("url", &Url::parse("https://deno.land").unwrap())
         .unwrap()
         .as_str(),
       "https://deno.land/std/node/url.ts"
