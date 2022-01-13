@@ -25,7 +25,7 @@ impl fmt::Display for ImportMapError {
         specifier,
         match maybe_referrer {
           Some(referrer) => format!(" from \"{}\"", referrer),
-          None => format!(""),
+          None => String::new(),
         }
       ),
       ImportMapError::Other(message) => f.pad(message),

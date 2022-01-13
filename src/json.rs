@@ -20,7 +20,7 @@ impl ImportMap {
       Err(err) => {
         return Err(ImportMapError::Other(format!(
           "Unable to parse import map JSON: {}",
-          err.to_string()
+          err,
         )));
       }
     };
