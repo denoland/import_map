@@ -1,17 +1,14 @@
 // Copyright 2021 the Deno authors. All rights reserved. MIT license.
 
 use indexmap::IndexMap;
-use log::debug;
-use log::info;
-use serde::Serialize;
-use serde_json::Map;
-use serde_json::Value;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
 use url::Url;
+
+#[cfg(feature = "json")]
+mod json;
 
 #[derive(Debug)]
 pub enum ImportMapError {
@@ -47,95 +44,158 @@ fn is_special(url: &Url) -> bool {
 
 type SpecifierMap = IndexMap<String, Option<Url>>;
 type ScopesMap = IndexMap<String, SpecifierMap>;
+type UnresolvedSpecifierMap = IndexMap<String, Option<String>>;
+type UnresolvedScopesMap = IndexMap<String, UnresolvedSpecifierMap>;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "json", derive(serde::Serialize))]
 pub struct ImportMap {
-  #[serde(skip)]
+  #[cfg_attr(feature = "json", serde(skip))]
   base_url: String,
 
   imports: SpecifierMap,
   scopes: ScopesMap,
 }
 
+#[derive(Debug, Clone)]
+pub struct ImportMapWithDiagnostics {
+  pub import_map: ImportMap,
+  pub diagnostics: Vec<String>,
+}
+
 impl ImportMap {
-  pub fn from_json(
+  pub fn new_with_diagnostics(
     base_url: &str,
-    json_string: &str,
-  ) -> Result<Self, ImportMapError> {
-    let v: Value = match serde_json::from_str(json_string) {
-      Ok(v) => v,
-      Err(err) => {
-        return Err(ImportMapError::Other(format!(
-          "Unable to parse import map JSON: {}",
-          err.to_string()
-        )));
-      }
-    };
-
-    match v {
-      Value::Object(_) => {}
-      _ => {
-        return Err(ImportMapError::Other(
-          "Import map JSON must be an object".to_string(),
-        ));
-      }
-    }
-
+    imports: UnresolvedSpecifierMap,
+    scopes: UnresolvedScopesMap,
+  ) -> Result<ImportMapWithDiagnostics, ImportMapError> {
     let mut diagnostics = vec![];
-    let normalized_imports = match &v.get("imports") {
-      Some(imports_map) => {
-        if !imports_map.is_object() {
-          return Err(ImportMapError::Other(
-            "Import map's 'imports' must be an object".to_string(),
-          ));
+    let normalized_imports =
+      ImportMap::parse_specifier_map(&imports, base_url, &mut diagnostics);
+    let normalized_scopes =
+      ImportMap::parse_scope_map(&scopes, base_url, &mut diagnostics)?;
+
+    Ok(ImportMapWithDiagnostics {
+      diagnostics,
+      import_map: ImportMap {
+        base_url: base_url.to_string(),
+        imports: normalized_imports,
+        scopes: normalized_scopes,
+      },
+    })
+  }
+
+  /// Convert provided key value string imports to valid SpecifierMap.
+  ///
+  /// From specification:
+  /// - order of iteration must be retained
+  /// - SpecifierMap's keys are sorted in longest and alphabetic order
+  fn parse_specifier_map(
+    imports: &UnresolvedSpecifierMap,
+    base_url: &str,
+    diagnostics: &mut Vec<String>,
+  ) -> SpecifierMap {
+    let mut normalized_map: SpecifierMap = SpecifierMap::new();
+
+    for (specifier_key, potential_address) in imports.iter() {
+      let normalized_specifier_key = match ImportMap::normalize_specifier_key(
+        specifier_key,
+        base_url,
+        diagnostics,
+      ) {
+        Some(s) => s,
+        None => continue,
+      };
+      let potential_address = match potential_address {
+        Some(address) => address,
+        None => {
+          normalized_map.insert(normalized_specifier_key, None);
+          continue;
         }
+      };
 
-        let imports_map = imports_map.as_object().unwrap();
-        ImportMap::parse_specifier_map(imports_map, base_url, &mut diagnostics)
+      let address_url =
+        match ImportMap::try_url_like_specifier(potential_address, base_url) {
+          Some(url) => url,
+          None => {
+            diagnostics.push(format!(
+              "Invalid address \"{}\" for the specifier key \"{}\".",
+              potential_address, specifier_key
+            ));
+            normalized_map.insert(normalized_specifier_key, None);
+            continue;
+          }
+        };
+
+      let address_url_string = address_url.to_string();
+      if specifier_key.ends_with('/') && !address_url_string.ends_with('/') {
+        diagnostics.push(format!(
+          "Invalid target address {:?} for package specifier {:?}. \
+            Package address targets must end with \"/\".",
+          address_url_string, specifier_key
+        ));
+        normalized_map.insert(normalized_specifier_key, None);
+        continue;
       }
-      None => IndexMap::new(),
-    };
 
-    let normalized_scopes = match &v.get("scopes") {
-      Some(scope_map) => {
-        if !scope_map.is_object() {
-          return Err(ImportMapError::Other(
-            "Import map's 'scopes' must be an object".to_string(),
-          ));
-        }
-
-        let scope_map = scope_map.as_object().unwrap();
-        ImportMap::parse_scope_map(scope_map, base_url, &mut diagnostics)?
-      }
-      None => IndexMap::new(),
-    };
-
-    let mut keys: HashSet<String> = v
-      .as_object()
-      .unwrap()
-      .keys()
-      .map(|k| k.to_string())
-      .collect();
-    keys.remove("imports");
-    keys.remove("scopes");
-    for key in keys {
-      diagnostics.push(format!("Invalid top-level key \"{}\". Only \"imports\" and \"scopes\" can be present.", key));
+      normalized_map.insert(normalized_specifier_key, Some(address_url));
     }
 
-    let import_map = ImportMap {
-      base_url: base_url.to_string(),
-      imports: normalized_imports,
-      scopes: normalized_scopes,
-    };
+    // Sort in longest and alphabetical order.
+    normalized_map.sort_by(|k1, _v1, k2, _v2| match k1.cmp(k2) {
+      Ordering::Greater => Ordering::Less,
+      Ordering::Less => Ordering::Greater,
+      // JSON guarantees that there can't be duplicate keys
+      Ordering::Equal => unreachable!(),
+    });
 
-    if !diagnostics.is_empty() {
-      info!("Import map diagnostics:");
-      for diagnotic in diagnostics {
-        info!("  - {}", diagnotic);
-      }
+    normalized_map
+  }
+
+  /// Convert provided key value string scopes to valid ScopeMap.
+  ///
+  /// From specification:
+  /// - order of iteration must be retained
+  /// - ScopeMap's keys are sorted in longest and alphabetic order
+  fn parse_scope_map(
+    scope_map: &UnresolvedScopesMap,
+    base_url: &str,
+    diagnostics: &mut Vec<String>,
+  ) -> Result<ScopesMap, ImportMapError> {
+    let mut normalized_map: ScopesMap = ScopesMap::new();
+
+    // Order is preserved because of "preserve_order" feature of "serde_json".
+    for (scope_prefix, potential_specifier_map) in scope_map.iter() {
+      let scope_prefix_url =
+        match Url::parse(base_url).unwrap().join(scope_prefix) {
+          Ok(url) => url.to_string(),
+          _ => {
+            diagnostics.push(format!(
+              "Invalid scope \"{}\" (parsed against base URL \"{}\").",
+              scope_prefix, base_url
+            ));
+            continue;
+          }
+        };
+
+      let norm_map = ImportMap::parse_specifier_map(
+        potential_specifier_map,
+        base_url,
+        diagnostics,
+      );
+
+      normalized_map.insert(scope_prefix_url, norm_map);
     }
 
-    Ok(import_map)
+    // Sort in longest and alphabetical order.
+    normalized_map.sort_by(|k1, _v1, k2, _v2| match k1.cmp(k2) {
+      Ordering::Greater => Ordering::Less,
+      Ordering::Less => Ordering::Greater,
+      // JSON guarantees that there can't be duplicate keys
+      Ordering::Equal => unreachable!(),
+    });
+
+    Ok(normalized_map)
   }
 
   fn try_url_like_specifier(specifier: &str, base: &str) -> Option<Url> {
@@ -222,132 +282,6 @@ impl ImportMap {
     } else {
       Ok(base.join(specifier)?)
     }
-  }
-
-  /// Convert provided JSON map to valid SpecifierMap.
-  ///
-  /// From specification:
-  /// - order of iteration must be retained
-  /// - SpecifierMap's keys are sorted in longest and alphabetic order
-  fn parse_specifier_map(
-    json_map: &Map<String, Value>,
-    base_url: &str,
-    diagnostics: &mut Vec<String>,
-  ) -> SpecifierMap {
-    let mut normalized_map: SpecifierMap = SpecifierMap::new();
-
-    // Order is preserved because of "preserve_order" feature of "serde_json".
-    for (specifier_key, value) in json_map.iter() {
-      let normalized_specifier_key = match ImportMap::normalize_specifier_key(
-        specifier_key,
-        base_url,
-        diagnostics,
-      ) {
-        Some(s) => s,
-        None => continue,
-      };
-
-      let potential_address = match value {
-        Value::String(address) => address.to_string(),
-        _ => {
-          diagnostics.push(format!("Invalid address {:#?} for the specifier key \"{}\". Addresses must be strings.", value, specifier_key));
-          normalized_map.insert(normalized_specifier_key, None);
-          continue;
-        }
-      };
-
-      let address_url =
-        match ImportMap::try_url_like_specifier(&potential_address, base_url) {
-          Some(url) => url,
-          None => {
-            diagnostics.push(format!(
-              "Invalid address \"{}\" for the specifier key \"{}\".",
-              potential_address, specifier_key
-            ));
-            normalized_map.insert(normalized_specifier_key, None);
-            continue;
-          }
-        };
-
-      let address_url_string = address_url.to_string();
-      if specifier_key.ends_with('/') && !address_url_string.ends_with('/') {
-        diagnostics.push(format!(
-          "Invalid target address {:?} for package specifier {:?}. \
-            Package address targets must end with \"/\".",
-          address_url_string, specifier_key
-        ));
-        normalized_map.insert(normalized_specifier_key, None);
-        continue;
-      }
-
-      normalized_map.insert(normalized_specifier_key, Some(address_url));
-    }
-
-    // Sort in longest and alphabetical order.
-    normalized_map.sort_by(|k1, _v1, k2, _v2| match k1.cmp(k2) {
-      Ordering::Greater => Ordering::Less,
-      Ordering::Less => Ordering::Greater,
-      // JSON guarantees that there can't be duplicate keys
-      Ordering::Equal => unreachable!(),
-    });
-
-    normalized_map
-  }
-
-  /// Convert provided JSON map to valid ScopeMap.
-  ///
-  /// From specification:
-  /// - order of iteration must be retained
-  /// - ScopeMap's keys are sorted in longest and alphabetic order
-  fn parse_scope_map(
-    scope_map: &Map<String, Value>,
-    base_url: &str,
-    diagnostics: &mut Vec<String>,
-  ) -> Result<ScopesMap, ImportMapError> {
-    let mut normalized_map: ScopesMap = ScopesMap::new();
-
-    // Order is preserved because of "preserve_order" feature of "serde_json".
-    for (scope_prefix, potential_specifier_map) in scope_map.iter() {
-      if !potential_specifier_map.is_object() {
-        return Err(ImportMapError::Other(format!(
-          "The value for the {:?} scope prefix must be an object",
-          scope_prefix
-        )));
-      }
-
-      let potential_specifier_map =
-        potential_specifier_map.as_object().unwrap();
-
-      let scope_prefix_url =
-        match Url::parse(base_url).unwrap().join(scope_prefix) {
-          Ok(url) => url.to_string(),
-          _ => {
-            diagnostics.push(format!(
-              "Invalid scope \"{}\" (parsed against base URL \"{}\").",
-              scope_prefix, base_url
-            ));
-            continue;
-          }
-        };
-
-      let norm_map = ImportMap::parse_specifier_map(
-        potential_specifier_map,
-        base_url,
-        diagnostics,
-      );
-
-      normalized_map.insert(scope_prefix_url, norm_map);
-    }
-
-    // Sort in longest and alphabetical order.
-    normalized_map.sort_by(|k1, _v1, k2, _v2| match k1.cmp(k2) {
-      Ordering::Greater => Ordering::Less,
-      Ordering::Less => Ordering::Greater,
-      // JSON guarantees that there can't be duplicate keys
-      Ordering::Equal => unreachable!(),
-    });
-
-    Ok(normalized_map)
   }
 
   fn resolve_scopes_match(
@@ -463,7 +397,8 @@ impl ImportMap {
       return Ok(Some(url));
     }
 
-    debug!(
+    #[cfg(feature = "logging")]
+    log::debug!(
       "Specifier {:?} was not mapped in import map.",
       normalized_specifier
     );
@@ -569,409 +504,42 @@ impl ImportMap {
 }
 
 #[cfg(test)]
-mod tests {
-
+mod test {
   use super::*;
-  use std::path::Path;
-  use std::path::PathBuf;
-  use walkdir::WalkDir;
 
-  #[derive(Debug)]
-  enum TestKind {
-    Resolution {
-      given_specifier: String,
-      expected_specifier: Option<String>,
-      base_url: String,
-    },
-    Parse {
-      expected_import_map: Value,
-    },
-  }
-
-  #[derive(Debug)]
-  struct ImportMapTestCase {
-    name: String,
-    import_map: String,
-    import_map_base_url: String,
-    kind: TestKind,
-  }
-
-  fn load_import_map_wpt_tests() -> Vec<String> {
-    let mut found_test_files = vec![];
-    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let import_map_wpt_path =
-      repo_root.join("wpt/import-maps/data-driven/resources");
-    eprintln!("import map wpt path {:#?}", import_map_wpt_path);
-    for entry in WalkDir::new(import_map_wpt_path)
-      .contents_first(true)
-      .into_iter()
-      .filter_entry(|e| {
-        eprintln!("entry {:#?}", e);
-        if let Some(ext) = e.path().extension() {
-          return ext.to_string_lossy() == "json";
-        }
-        false
-      })
-      .filter_map(|e| match e {
-        Ok(e) => Some(e),
-        _ => None,
-      })
-      .map(|e| PathBuf::from(e.path()))
-    {
-      found_test_files.push(entry);
-    }
-
-    let mut file_contents = vec![];
-
-    for file in found_test_files {
-      let content = std::fs::read_to_string(file).unwrap();
-      file_contents.push(content);
-    }
-
-    file_contents
-  }
-
-  fn parse_import_map_tests(test_str: &str) -> Vec<ImportMapTestCase> {
-    let json_file: serde_json::Value = serde_json::from_str(test_str).unwrap();
-    let maybe_name = json_file
-      .get("name")
-      .map(|s| s.as_str().unwrap().to_string());
-    return parse_test_object(&json_file, maybe_name, None, None, None, None);
-
-    fn parse_test_object(
-      test_obj: &Value,
-      maybe_name_prefix: Option<String>,
-      maybe_import_map: Option<String>,
-      maybe_base_url: Option<String>,
-      maybe_import_map_base_url: Option<String>,
-      maybe_expected_import_map: Option<Value>,
-    ) -> Vec<ImportMapTestCase> {
-      let maybe_import_map_base_url =
-        if let Some(base_url) = test_obj.get("importMapBaseURL") {
-          Some(base_url.as_str().unwrap().to_string())
-        } else {
-          maybe_import_map_base_url
-        };
-
-      let maybe_base_url = if let Some(base_url) = test_obj.get("baseURL") {
-        Some(base_url.as_str().unwrap().to_string())
-      } else {
-        maybe_base_url
-      };
-
-      let maybe_expected_import_map =
-        if let Some(im) = test_obj.get("expectedParsedImportMap") {
-          Some(im.to_owned())
-        } else {
-          maybe_expected_import_map
-        };
-
-      let maybe_import_map = if let Some(import_map) = test_obj.get("importMap")
+  #[test]
+  pub fn imports_only() {
+    let result = ImportMap::new_with_diagnostics(
+      "https://deno.land",
       {
-        Some(if import_map.is_string() {
-          import_map.as_str().unwrap().to_string()
-        } else {
-          serde_json::to_string(import_map).unwrap()
-        })
-      } else {
-        maybe_import_map
-      };
-
-      if let Some(nested_tests) = test_obj.get("tests") {
-        let nested_tests_obj = nested_tests.as_object().unwrap();
-        let mut collected = vec![];
-        for (name, test_obj) in nested_tests_obj {
-          let nested_name = if let Some(ref name_prefix) = maybe_name_prefix {
-            format!("{}: {}", name_prefix, name)
-          } else {
-            name.to_string()
-          };
-          let parsed_nested_tests = parse_test_object(
-            test_obj,
-            Some(nested_name),
-            maybe_import_map.clone(),
-            maybe_base_url.clone(),
-            maybe_import_map_base_url.clone(),
-            maybe_expected_import_map.clone(),
-          );
-          collected.extend(parsed_nested_tests)
-        }
-        return collected;
-      }
-
-      let mut collected_cases = vec![];
-      if let Some(results) = test_obj.get("expectedResults") {
-        let expected_results = results.as_object().unwrap();
-        for (given, expected) in expected_results {
-          let name = if let Some(ref name_prefix) = maybe_name_prefix {
-            format!("{}: {}", name_prefix, given)
-          } else {
-            given.to_string()
-          };
-          let given_specifier = given.to_string();
-          let expected_specifier = expected.as_str().map(|str| str.to_string());
-
-          let test_case = ImportMapTestCase {
-            name,
-            import_map_base_url: maybe_import_map_base_url.clone().unwrap(),
-            import_map: maybe_import_map.clone().unwrap(),
-            kind: TestKind::Resolution {
-              given_specifier,
-              expected_specifier,
-              base_url: maybe_base_url.clone().unwrap(),
-            },
-          };
-
-          collected_cases.push(test_case);
-        }
-      } else if let Some(expected_import_map) = maybe_expected_import_map {
-        let test_case = ImportMapTestCase {
-          name: maybe_name_prefix.unwrap(),
-          import_map_base_url: maybe_import_map_base_url.unwrap(),
-          import_map: maybe_import_map.unwrap(),
-          kind: TestKind::Parse {
-            expected_import_map,
-          },
-        };
-
-        collected_cases.push(test_case);
-      } else {
-        eprintln!("unreachable {:#?}", test_obj);
-        unreachable!();
-      }
-
-      collected_cases
-    }
-  }
-
-  fn run_import_map_test_cases(tests: Vec<ImportMapTestCase>) {
-    for test in tests {
-      match &test.kind {
-        TestKind::Resolution {
-          given_specifier,
-          expected_specifier,
-          base_url,
-        } => {
-          let import_map =
-            ImportMap::from_json(&test.import_map_base_url, &test.import_map)
-              .unwrap();
-          let maybe_resolved = import_map
-            .resolve(given_specifier, base_url)
-            .ok()
-            .map(|url| url.to_string());
-          assert_eq!(expected_specifier, &maybe_resolved, "{}", test.name);
-        }
-        TestKind::Parse {
-          expected_import_map,
-        } => {
-          if matches!(expected_import_map, Value::Null) {
-            assert!(ImportMap::from_json(
-              &test.import_map_base_url,
-              &test.import_map
-            )
-            .is_err());
-          } else {
-            let import_map =
-              ImportMap::from_json(&test.import_map_base_url, &test.import_map)
-                .unwrap();
-            let import_map_value = serde_json::to_value(import_map).unwrap();
-            assert_eq!(expected_import_map, &import_map_value, "{}", test.name);
-          }
-        }
-      }
-    }
-  }
-
-  #[test]
-  fn wpt() {
-    let test_file_contents = load_import_map_wpt_tests();
-    eprintln!("Found test files {}", test_file_contents.len());
-
-    for test_file in test_file_contents {
-      let tests = parse_import_map_tests(&test_file);
-      run_import_map_test_cases(tests);
-    }
-  }
-
-  #[test]
-  fn from_json_1() {
-    let base_url = "https://deno.land";
-
-    // empty JSON
-    assert!(ImportMap::from_json(base_url, "{}").is_ok());
-
-    let non_object_strings = vec!["null", "true", "1", "\"foo\"", "[]"];
-
-    // invalid JSON
-    for non_object in non_object_strings.to_vec() {
-      assert!(ImportMap::from_json(base_url, non_object).is_err());
-    }
-
-    // invalid JSON message test
-    assert_eq!(
-      ImportMap::from_json(base_url, "{\"a\":1,}")
-        .unwrap_err()
-        .to_string(),
-      "Unable to parse import map JSON: trailing comma at line 1 column 8",
-    );
-
-    // invalid schema: 'imports' is non-object
-    for non_object in non_object_strings.to_vec() {
-      assert!(ImportMap::from_json(
-        base_url,
-        &format!("{{\"imports\": {}}}", non_object),
-      )
-      .is_err());
-    }
-
-    // invalid schema: 'scopes' is non-object
-    for non_object in non_object_strings.to_vec() {
-      assert!(ImportMap::from_json(
-        base_url,
-        &format!("{{\"scopes\": {}}}", non_object),
-      )
-      .is_err());
-    }
-  }
-
-  #[test]
-  fn from_json_2() {
-    let json_map = r#"{
-      "imports": {
-        "foo": "https://example.com/1",
-        "bar": ["https://example.com/2"],
-        "fizz": null
-      }
-    }"#;
-    let result = ImportMap::from_json("https://deno.land", json_map);
-    assert!(result.is_ok());
-  }
-
-  #[test]
-  fn mapped_windows_file_specifier() {
-    // from issue #11530
-    let mut specifiers = SpecifierMap::new();
-    specifiers.insert(
-      "file:///".to_string(),
-      Some(Url::parse("http://localhost/").unwrap()),
-    );
-
-    let resolved_specifier = ImportMap::resolve_imports_match(
-      &specifiers,
-      "file:///C:/folder/file.ts",
-      None,
+        let mut map = IndexMap::new();
+        map
+          .insert("foo".to_string(), Some("https://example.com/1".to_string()));
+        map.insert("bar".to_string(), Some("test".to_string()));
+        map.insert("baz".to_string(), Some("/test".to_string()));
+        map
+      },
+      IndexMap::new(),
     )
-    .unwrap()
     .unwrap();
-
+    assert_eq!(result.import_map.imports, {
+      let mut map = IndexMap::new();
+      map.insert(
+        "foo".to_string(),
+        Some(Url::parse("https://example.com/1").unwrap()),
+      );
+      map.insert("bar".to_string(), None);
+      map.insert(
+        "baz".to_string(),
+        Some(Url::parse("https://deno.land/test").unwrap()),
+      );
+      map
+    });
     assert_eq!(
-      resolved_specifier.as_str(),
-      "http://localhost/C:/folder/file.ts"
-    );
-  }
-
-  #[test]
-  fn querystring() {
-    let json_map = r#"{
-      "imports": {
-        "npm/": "https://esm.sh/"
-      }
-    }"#;
-    let import_map =
-      ImportMap::from_json("https://deno.land", json_map).unwrap();
-
-    let resolved = import_map
-      .resolve("npm/postcss-modules@4.2.2?no-check", "https://deno.land")
-      .unwrap();
-    assert_eq!(
-      resolved.as_str(),
-      "https://esm.sh/postcss-modules@4.2.2?no-check"
-    );
-
-    let resolved = import_map
-      .resolve("npm/key/a?b?c", "https://deno.land")
-      .unwrap();
-    assert_eq!(resolved.as_str(), "https://esm.sh/key/a?b?c");
-
-    let resolved = import_map
-      .resolve(
-        "npm/postcss-modules@4.2.2?no-check#fragment",
-        "https://deno.land",
-      )
-      .unwrap();
-    assert_eq!(
-      resolved.as_str(),
-      "https://esm.sh/postcss-modules@4.2.2?no-check#fragment"
-    );
-
-    let resolved = import_map
-      .resolve("npm/postcss-modules@4.2.2#fragment", "https://deno.land")
-      .unwrap();
-    assert_eq!(
-      resolved.as_str(),
-      "https://esm.sh/postcss-modules@4.2.2#fragment"
-    );
-  }
-
-  #[test]
-  fn update_imports() {
-    let json_map = r#"{
-      "imports": {
-        "fs": "https://example.com/1"
-      }
-    }"#;
-    let mut import_map =
-      ImportMap::from_json("https://deno.land", json_map).unwrap();
-    let mut mappings = HashMap::new();
-    mappings.insert(
-      "assert".to_string(),
-      "https://deno.land/std/node/assert.ts".to_string(),
-    );
-    mappings.insert(
-      "child_process".to_string(),
-      "https://deno.land/std/node/child_process.ts".to_string(),
-    );
-    mappings.insert(
-      "fs".to_string(),
-      "https://deno.land/std/node/fs.ts".to_string(),
-    );
-    mappings.insert(
-      "url".to_string(),
-      "https://deno.land/std/node/url.ts".to_string(),
-    );
-    let diagnostics = import_map.update_imports(mappings).unwrap();
-    assert_eq!(diagnostics.len(), 1);
-    assert_eq!(
-      diagnostics[0],
-      "\"fs\" already exists and is mapped to \"https://example.com/1\""
-    );
-    assert_eq!(
-      import_map
-        .resolve("assert", "http://deno.land")
-        .unwrap()
-        .as_str(),
-      "https://deno.land/std/node/assert.ts"
-    );
-    assert_eq!(
-      import_map
-        .resolve("child_process", "http://deno.land")
-        .unwrap()
-        .as_str(),
-      "https://deno.land/std/node/child_process.ts"
-    );
-    assert_eq!(
-      import_map
-        .resolve("fs", "http://deno.land")
-        .unwrap()
-        .as_str(),
-      "https://example.com/1"
-    );
-    assert_eq!(
-      import_map
-        .resolve("url", "http://deno.land")
-        .unwrap()
-        .as_str(),
-      "https://deno.land/std/node/url.ts"
-    );
+      result.diagnostics,
+      vec![
+        "Invalid address \"test\" for the specifier key \"bar\".".to_string(),
+      ]
+    )
   }
 }
