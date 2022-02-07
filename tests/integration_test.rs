@@ -392,3 +392,21 @@ fn update_imports() {
     "https://deno.land/std/node/url.ts"
   );
 }
+
+#[test]
+fn import_keys() {
+  let json_map = r#"{
+    "imports": {
+      "fs": "https://example.com/1",
+      "https://example.com/example/": "https://example.com/2/"
+    }
+  }"#;
+  let import_map =
+    parse_from_json(&Url::parse("https://deno.land").unwrap(), json_map)
+      .unwrap()
+      .import_map;
+  assert_eq!(
+    import_map.imports_keys(),
+    vec!["https://example.com/example/", "fs"]
+  );
+}

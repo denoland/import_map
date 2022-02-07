@@ -63,6 +63,11 @@ pub struct ImportMapWithDiagnostics {
 }
 
 impl ImportMap {
+  /// Provide the keys of the `imports` property of the import map.
+  pub fn imports_keys(&self) -> Vec<&str> {
+    self.imports.keys().map(|k| k.as_str()).collect()
+  }
+
   pub fn resolve(
     &self,
     specifier: &str,
