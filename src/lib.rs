@@ -68,6 +68,10 @@ impl ImportMap {
     self.imports.keys().map(|k| k.as_str()).collect()
   }
 
+  pub fn base_url(&self) -> &Url {
+    &self.base_url
+  }
+
   pub fn resolve(
     &self,
     specifier: &str,
