@@ -166,7 +166,7 @@ impl ImportMap {
 
   /// Removes any imports or scopes referencing the provided folder in
   /// the import map.
-  pub fn with_stripped_folder(&self, folder: &Url) -> Self {
+  pub fn with_folder_removed(&self, folder: &Url) -> Self {
     fn filter_imports(imports: &SpecifierMap, path: &Url) -> SpecifierMap {
       imports
         .iter()
@@ -689,7 +689,7 @@ mod test {
     .unwrap()
     .import_map;
     let new_import_map = import_map
-      .with_stripped_folder(&Url::parse("file:///dir/vendor/").unwrap());
+      .with_folder_removed(&Url::parse("file:///dir/vendor/").unwrap());
     assert_eq!(new_import_map.base_url(), import_map.base_url());
     assert_eq!(
       new_import_map.imports,
