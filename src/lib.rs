@@ -88,7 +88,7 @@ impl ImportMap {
       &self.scopes,
       &normalized_specifier,
       as_url.as_ref(),
-      &referrer.to_string(),
+      referrer.as_ref(),
     )?;
 
     // match found in scopes map
@@ -120,8 +120,6 @@ impl ImportMap {
 
   /// This is a non-standard method that allows to add
   /// more "imports" mappings to already existing import map.
-  ///
-  ///
   pub fn update_imports(
     &mut self,
     imports: HashMap<String, String>,
