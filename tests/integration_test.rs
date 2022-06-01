@@ -80,7 +80,7 @@ fn parse_import_map_tests(test_str: &str) -> Vec<ImportMapTestCase> {
   ) -> Vec<ImportMapTestCase> {
     let maybe_import_map_base_url =
       if let Some(base_url) = test_obj.get("importMapBaseURL") {
-        Some(Url::parse(&base_url.as_str().unwrap().to_string()).unwrap())
+        Some(Url::parse(base_url.as_str().unwrap()).unwrap())
       } else {
         maybe_import_map_base_url
       };
@@ -233,7 +233,7 @@ fn from_json_1() {
   let non_object_strings = vec!["null", "true", "1", "\"foo\"", "[]"];
 
   // invalid JSON
-  for non_object in non_object_strings.to_vec() {
+  for non_object in non_object_strings.iter().copied() {
     assert!(parse_from_json(&base_url, non_object).is_err());
   }
 
@@ -246,7 +246,7 @@ fn from_json_1() {
   );
 
   // invalid schema: 'imports' is non-object
-  for non_object in non_object_strings.to_vec() {
+  for non_object in non_object_strings.iter() {
     assert!(parse_from_json(
       &base_url,
       &format!("{{\"imports\": {}}}", non_object),
@@ -255,7 +255,7 @@ fn from_json_1() {
   }
 
   // invalid schema: 'scopes' is non-object
-  for non_object in non_object_strings.to_vec() {
+  for non_object in non_object_strings {
     assert!(parse_from_json(
       &base_url,
       &format!("{{\"scopes\": {}}}", non_object),

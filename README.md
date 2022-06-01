@@ -12,13 +12,7 @@ The implementation is tested against WPT test suite.
 
 ## Developing
 
-Make sure to have latest stable version of Rust installed (1.55.0).
-
 ```shell
-// check version
-$ rustc --version
-rustc 1.55.0 (c8dfcfe04 2021-09-06)
-
 // checkout git submodules
 $ git submodule update --init --recursive
 
