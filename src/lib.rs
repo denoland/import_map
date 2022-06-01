@@ -164,9 +164,9 @@ impl ImportMap {
     Ok(diagnostics)
   }
 
-  /// Removes any imports or scopes referencing the provided path in
+  /// Removes any imports or scopes referencing the provided folder in
   /// the import map.
-  pub fn with_stripped_path(&self, path: &Url) -> Self {
+  pub fn with_stripped_folder(&self, folder: &Url) -> Self {
     fn filter_imports(imports: &SpecifierMap, path: &Url) -> SpecifierMap {
       imports
         .iter()
@@ -182,18 +182,18 @@ impl ImportMap {
     }
 
     let base_url = self.base_url().to_owned();
-    let imports = filter_imports(&self.imports, path);
+    let imports = filter_imports(&self.imports, folder);
     let scopes = self
       .scopes
       .iter()
       .filter_map(|(key, imports)| {
         if let Ok(base) = base_url.join(key) {
-          if base.as_str().starts_with(&path.as_str()) {
+          if base.as_str().starts_with(&folder.as_str()) {
             return None;
           }
         }
         // now filter out any entries
-        let imports = filter_imports(imports, path);
+        let imports = filter_imports(imports, folder);
         if imports.is_empty() {
           None
         } else {
@@ -662,7 +662,7 @@ mod test {
   }
 
   #[test]
-  pub fn strips_path_from_import_map() {
+  pub fn strips_folder_from_import_map() {
     let import_map = parse_from_json(
       &Url::parse("file:///dir/").unwrap(),
       r#"{
@@ -689,7 +689,7 @@ mod test {
     .unwrap()
     .import_map;
     let new_import_map = import_map
-      .with_stripped_path(&Url::parse("file:///dir/vendor/").unwrap());
+      .with_stripped_folder(&Url::parse("file:///dir/vendor/").unwrap());
     assert_eq!(new_import_map.base_url(), import_map.base_url());
     assert_eq!(
       new_import_map.imports,
