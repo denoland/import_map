@@ -10,7 +10,7 @@ description = "An implementation of WICG Import Maps specification"
 
 # Don't include WPT test suite in uploaded crate
 exclude = [
-    "wpt/"
+  "wpt/"
 ]
 
 [features]
