@@ -163,6 +163,51 @@ impl ImportMap {
 
     Ok(diagnostics)
   }
+
+  /// Removes any imports or scopes referencing the provided path in
+  /// the import map.
+  pub fn with_stripped_path(&self, path: &Url) -> Self {
+    fn filter_imports(imports: &SpecifierMap, path: &Url) -> SpecifierMap {
+      imports
+        .iter()
+        .filter_map(|(key, value)| {
+          let value = value.as_ref()?;
+          if value.as_str().starts_with(&path.as_str()) {
+            None
+          } else {
+            Some((key.to_owned(), Some(value.to_owned())))
+          }
+        })
+        .collect::<SpecifierMap>()
+    }
+
+    let base_url = self.base_url().to_owned();
+    let imports = filter_imports(&self.imports, path);
+    let scopes = self
+      .scopes
+      .iter()
+      .filter_map(|(key, imports)| {
+        if let Ok(base) = base_url.join(key) {
+          if base.as_str().starts_with(&path.as_str()) {
+            return None;
+          }
+        }
+        // now filter out any entries
+        let imports = filter_imports(imports, path);
+        if imports.is_empty() {
+          None
+        } else {
+          Some((key.to_owned(), imports))
+        }
+      })
+      .collect::<ScopesMap>();
+
+    Self {
+      base_url,
+      imports,
+      scopes,
+    }
+  }
 }
 
 pub fn parse_from_json(
@@ -613,6 +658,59 @@ mod test {
     assert_eq!(
       resolved_specifier.as_str(),
       "http://localhost/C:/folder/file.ts"
+    );
+  }
+
+  #[test]
+  pub fn strips_path_from_import_map() {
+    let import_map = parse_from_json(
+      &Url::parse("file:///dir/").unwrap(),
+      r#"{
+  "imports": {
+    "a": "./other/",
+    "b": "./vendor/",
+    "c": "./vendor/sub/",
+    "d": "./vendor/sub/test.ts"
+  },
+  "scopes": {
+    "./vendor/sub/": {
+      "a": "./other/"
+    },
+    "./sub/": {
+      "a": "./vendor/sub/"
+    },
+    "./sub2/": {
+      "a": "./vendor/sub/",
+      "b": "./other/"
+    }
+  }
+}"#,
+    )
+    .unwrap()
+    .import_map;
+    let new_import_map = import_map
+      .with_stripped_path(&Url::parse("file:///dir/vendor/").unwrap());
+    assert_eq!(new_import_map.base_url(), import_map.base_url());
+    assert_eq!(
+      new_import_map.imports,
+      IndexMap::from([(
+        "a".to_string(),
+        Some(new_import_map.base_url().join("./other/").unwrap())
+      )]),
+    );
+    assert_eq!(
+      new_import_map.scopes,
+      IndexMap::from([(
+        new_import_map
+          .base_url()
+          .join("./sub2/")
+          .unwrap()
+          .to_string(),
+        IndexMap::from([(
+          "b".to_string(),
+          Some(new_import_map.base_url().join("./other/").unwrap())
+        )])
+      )]),
     );
   }
 }

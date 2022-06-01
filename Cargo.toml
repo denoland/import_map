@@ -18,7 +18,7 @@ logging = ["log"]
 default = ["logging"]
 
 [dependencies]
-indexmap = { version = "1.7.0", features = ["serde"] }
+indexmap = { version = "1.8.2", features = ["serde"] }
 log = { version = "0.4.14", optional = true }
 serde = { version = "1.0.129", features = ["derive"] }
 serde_json = { version = "1.0.66", features = ["preserve_order"] }

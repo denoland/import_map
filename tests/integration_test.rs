@@ -398,7 +398,8 @@ fn import_keys() {
   let json_map = r#"{
     "imports": {
       "fs": "https://example.com/1",
-      "https://example.com/example/": "https://example.com/2/"
+      "https://example.com/example/": "https://example.com/2/",
+      "/~/": "./lib/"
     }
   }"#;
   let import_map =
@@ -407,6 +408,6 @@ fn import_keys() {
       .import_map;
   assert_eq!(
     import_map.imports_keys(),
-    vec!["https://example.com/example/", "fs"]
+    vec!["https://example.com/example/", "https://deno.land/~/", "fs"]
   );
 }
