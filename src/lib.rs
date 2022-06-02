@@ -174,6 +174,7 @@ impl SpecifierMap {
           ));
         }
       };
+
     self.inner.insert(
       key.to_string(),
       SpecifierMapValue::new(start_index, &raw, &key, Some(address_url)),
@@ -223,14 +224,6 @@ pub struct ImportMap {
 }
 
 impl ImportMap {
-  pub fn imports(&self) -> &SpecifierMap {
-    &self.imports
-  }
-
-  pub fn imports_mut(&mut self) -> &mut SpecifierMap {
-    &mut self.imports
-  }
-
   pub fn base_url(&self) -> &Url {
     &self.base_url
   }
@@ -279,6 +272,55 @@ impl ImportMap {
       specifier.to_string(),
       Some(referrer.to_string()),
     ))
+  }
+
+  pub fn imports(&self) -> &SpecifierMap {
+    &self.imports
+  }
+
+  pub fn imports_mut(&mut self) -> &mut SpecifierMap {
+    &mut self.imports
+  }
+
+  pub fn get_or_append_scope_mut(
+    &mut self,
+    key: &str,
+  ) -> Result<&mut SpecifierMap, String> {
+    let scope_prefix_url = match self.base_url.join(key) {
+      Ok(url) => url.to_string(),
+      _ => {
+        return Err(format!(
+          "Invalid scope \"{}\" (parsed against base URL \"{}\").",
+          key, self.base_url
+        ));
+      }
+    };
+
+    // todo(dsherret): was fighting the borrow checker here... these should be
+    // created lazily
+    let base_url = self.base_url.clone();
+    let index = self.scopes.values().map(|s| s.index + 1).max().unwrap_or(0);
+    Ok(
+      &mut self
+        .scopes
+        .entry(scope_prefix_url.clone())
+        .or_insert_with(|| {
+          ScopesMapValue {
+            index,
+            raw_key: if scope_prefix_url == key {
+              None
+            } else {
+              // only store this if they differ to save memory
+              Some(key.to_string())
+            },
+            imports: SpecifierMap {
+              base_url,
+              inner: Default::default(),
+            },
+          }
+        })
+        .imports,
+    )
   }
 
   /// Removes any imports or scopes referencing the provided folder in

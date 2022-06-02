@@ -404,6 +404,46 @@ fn append_imports() {
 }
 
 #[test]
+fn get_or_append_scope_mut() {
+  let mut import_map =
+    parse_from_json(&Url::parse("https://deno.land").unwrap(), "{}")
+      .unwrap()
+      .import_map;
+
+  // test adding
+  let other_scopes = import_map.get_or_append_scope_mut("/other").unwrap();
+  other_scopes
+    .append("test".to_string(), "/other/".to_string())
+    .unwrap();
+
+  // test adding with a key that will resolve to the same as the first one
+  let other_scopes = import_map
+    .get_or_append_scope_mut("https://deno.land/other")
+    .unwrap();
+  other_scopes
+    .append("second".to_string(), "/other2/".to_string())
+    .unwrap();
+
+  // now add an empty scope
+  import_map.get_or_append_scope_mut("/empty").unwrap();
+
+  assert_eq!(
+    import_map.to_json(),
+    r#"{
+  "scopes": {
+    "/other": {
+      "test": "/other/",
+      "second": "/other2/"
+    },
+    "/empty": {
+    }
+  }
+}
+"#
+  );
+}
+
+#[test]
 fn import_keys() {
   let json_map = r#"{
     "imports": {
