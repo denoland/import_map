@@ -1,8 +1,8 @@
 // Copyright 2021-2022 the Deno authors. All rights reserved. MIT license.
 
 use import_map::parse_from_json;
+use pretty_assertions::assert_eq;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use url::Url;
@@ -330,7 +330,7 @@ fn querystring() {
 }
 
 #[test]
-fn update_imports() {
+fn append_imports() {
   let json_map = r#"{
     "imports": {
       "fs": "https://example.com/1"
@@ -340,29 +340,39 @@ fn update_imports() {
     parse_from_json(&Url::parse("https://deno.land").unwrap(), json_map)
       .unwrap()
       .import_map;
-  let mut mappings = HashMap::new();
-  mappings.insert(
-    "assert".to_string(),
-    "https://deno.land/std/node/assert.ts".to_string(),
-  );
-  mappings.insert(
-    "child_process".to_string(),
-    "https://deno.land/std/node/child_process.ts".to_string(),
-  );
-  mappings.insert(
-    "fs".to_string(),
-    "https://deno.land/std/node/fs.ts".to_string(),
-  );
-  mappings.insert(
-    "url".to_string(),
-    "https://deno.land/std/node/url.ts".to_string(),
-  );
-  let diagnostics = import_map.update_imports(mappings).unwrap();
-  assert_eq!(diagnostics.len(), 1);
+  import_map
+    .imports_mut()
+    .append(
+      "assert".to_string(),
+      "https://deno.land/std/node/assert.ts".to_string(),
+    )
+    .unwrap();
+  import_map
+    .imports_mut()
+    .append(
+      "child_process".to_string(),
+      "https://deno.land/std/node/child_process.ts".to_string(),
+    )
+    .unwrap();
   assert_eq!(
-    diagnostics[0],
+    import_map
+      .imports_mut()
+      .append(
+        "fs".to_string(),
+        "https://deno.land/std/node/fs.ts".to_string(),
+      )
+      .err()
+      .unwrap(),
     "\"fs\" already exists and is mapped to \"https://example.com/1\""
   );
+  import_map
+    .imports_mut()
+    .append(
+      "url".to_string(),
+      "https://deno.land/std/node/url.ts".to_string(),
+    )
+    .unwrap();
+
   assert_eq!(
     import_map
       .resolve("assert", &Url::parse("https://deno.land").unwrap())
@@ -407,7 +417,7 @@ fn import_keys() {
       .unwrap()
       .import_map;
   assert_eq!(
-    import_map.imports_keys(),
+    import_map.imports().keys().collect::<Vec<_>>(),
     vec!["https://example.com/example/", "https://deno.land/~/", "fs"]
   );
 }

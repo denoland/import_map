@@ -4,7 +4,6 @@ use indexmap::IndexMap;
 use serde_json::Map;
 use serde_json::Value;
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
@@ -116,10 +115,103 @@ impl serde::Serialize for ScopesMapValue {
   }
 }
 
-type SpecifierMap = IndexMap<String, SpecifierMapValue>;
+type SpecifierMapInner = IndexMap<String, SpecifierMapValue>;
+
+#[derive(Debug, Clone)]
+pub struct SpecifierMap {
+  base_url: Url,
+  inner: SpecifierMapInner,
+}
+
+impl SpecifierMap {
+  pub fn keys(&self) -> impl Iterator<Item = &str> {
+    self.inner.keys().map(|k| k.as_str())
+  }
+
+  pub fn contains(&self, key: &str) -> bool {
+    if let Ok(key) = normalize_specifier_key(key, &self.base_url) {
+      self.inner.contains_key(&key)
+    } else {
+      false
+    }
+  }
+
+  pub fn append(&mut self, key: String, value: String) -> Result<(), String> {
+    let start_index = self
+      .inner
+      .values()
+      .map(|v| v.index)
+      .max()
+      .map(|index| index + 1)
+      .unwrap_or(0);
+
+    let raw = RawKeyValue {
+      key,
+      value: Some(value),
+    };
+    let key = normalize_specifier_key(&raw.key, &self.base_url)?;
+    if let Some(import_value) = self.inner.get(&key) {
+      let import_val = if let Some(value) = &import_value.maybe_address {
+        value.as_str()
+      } else {
+        "<invalid value>"
+      };
+      return Err(format!(
+        "\"{}\" already exists and is mapped to \"{}\"",
+        key, import_val
+      ));
+    }
+
+    let address_url =
+      match try_url_like_specifier(raw.value.as_ref().unwrap(), &self.base_url)
+      {
+        Some(url) => url,
+        None => {
+          return Err(format!(
+            "Invalid address \"{}\" for the specifier key {:?}.",
+            raw.value.unwrap(),
+            key
+          ));
+        }
+      };
+    self.inner.insert(
+      key.to_string(),
+      SpecifierMapValue::new(start_index, &raw, &key, Some(address_url)),
+    );
+    self.sort();
+
+    Ok(())
+  }
+
+  fn sort(&mut self) {
+    // Sort in longest and alphabetical order.
+    self.inner.sort_by(|k1, _v1, k2, _v2| match k1.cmp(k2) {
+      Ordering::Greater => Ordering::Less,
+      Ordering::Less => Ordering::Greater,
+      // index map guarantees that there can't be duplicate keys
+      Ordering::Equal => unreachable!(),
+    });
+  }
+}
+
+impl serde::Serialize for SpecifierMap {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: serde::Serializer,
+  {
+    self.inner.serialize(serializer)
+  }
+}
+
 type ScopesMap = IndexMap<String, ScopesMapValue>;
 type UnresolvedSpecifierMap = IndexMap<String, Option<String>>;
 type UnresolvedScopesMap = IndexMap<String, UnresolvedSpecifierMap>;
+
+#[derive(Debug, Clone)]
+pub struct ImportMapWithDiagnostics {
+  pub import_map: ImportMap,
+  pub diagnostics: Vec<String>,
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportMap {
@@ -130,16 +222,13 @@ pub struct ImportMap {
   scopes: ScopesMap,
 }
 
-#[derive(Debug, Clone)]
-pub struct ImportMapWithDiagnostics {
-  pub import_map: ImportMap,
-  pub diagnostics: Vec<String>,
-}
-
 impl ImportMap {
-  /// Provide the keys of the `imports` property of the import map.
-  pub fn imports_keys(&self) -> Vec<&str> {
-    self.imports.keys().map(|k| k.as_str()).collect()
+  pub fn imports(&self) -> &SpecifierMap {
+    &self.imports
+  }
+
+  pub fn imports_mut(&mut self) -> &mut SpecifierMap {
+    &mut self.imports
   }
 
   pub fn base_url(&self) -> &Url {
@@ -192,93 +281,25 @@ impl ImportMap {
     ))
   }
 
-  /// This is a non-standard method that allows to add
-  /// more "imports" mappings to already existing import map.
-  pub fn update_imports(
-    &mut self,
-    imports: HashMap<String, String>,
-  ) -> Result<Vec<String>, ImportMapError> {
-    let mut diagnostics = vec![];
-    let start_index = self
-      .imports
-      .values()
-      .map(|v| v.index)
-      .max()
-      .map(|max| max + 1)
-      .unwrap_or(0);
-
-    for (i, (key, value)) in imports.into_iter().enumerate() {
-      let raw = RawKeyValue {
-        key,
-        value: Some(value),
-      };
-      let key = match normalize_specifier_key(
-        &raw.key,
-        &self.base_url,
-        &mut diagnostics,
-      ) {
-        Some(s) => s,
-        None => continue,
-      };
-      if let Some(import_value) = self.imports.get(&key) {
-        let import_val = if let Some(value) = &import_value.maybe_address {
-          value.as_str()
-        } else {
-          "<invalid value>"
-        };
-        diagnostics.push(format!(
-          "\"{}\" already exists and is mapped to \"{}\"",
-          key, import_val
-        ));
-        continue;
-      }
-
-      let address_url = match try_url_like_specifier(
-        raw.value.as_ref().unwrap(),
-        &self.base_url,
-      ) {
-        Some(url) => url,
-        None => {
-          diagnostics.push(format!(
-            "Invalid address \"{}\" for the specifier key {:?}.",
-            raw.value.unwrap(),
-            key
-          ));
-          continue;
-        }
-      };
-      self.imports.insert(
-        key.to_string(),
-        SpecifierMapValue::new(start_index + i, &raw, &key, Some(address_url)),
-      );
-    }
-
-    // Sort in longest and alphabetical order.
-    self.imports.sort_by(|k1, _v1, k2, _v2| match k1.cmp(k2) {
-      Ordering::Greater => Ordering::Less,
-      Ordering::Less => Ordering::Greater,
-      // index map guarantees that there can't be duplicate keys
-      Ordering::Equal => unreachable!(),
-    });
-
-    Ok(diagnostics)
-  }
-
   /// Removes any imports or scopes referencing the provided folder in
   /// the import map.
   pub fn with_folder_removed(&self, folder: &Url) -> Self {
     fn filter_imports(imports: &SpecifierMap, path: &Url) -> SpecifierMap {
-      imports
-        .iter()
-        .filter_map(|(key, value)| {
-          if let Some(value) = &value.maybe_address {
-            if value.as_str().starts_with(&path.as_str()) {
-              return None;
+      SpecifierMap {
+        base_url: imports.base_url.clone(),
+        inner: imports
+          .inner
+          .iter()
+          .filter_map(|(key, value)| {
+            if let Some(value) = &value.maybe_address {
+              if value.as_str().starts_with(&path.as_str()) {
+                return None;
+              }
             }
-          }
-          Some((key.to_owned(), value.to_owned()))
-        })
-        .collect::<SpecifierMap>()
+            Some((key.to_owned(), value.to_owned()))
+          })
+          .collect::<SpecifierMapInner>(),
+      }
     }
 
     let base_url = self.base_url().to_owned();
@@ -294,7 +315,7 @@ impl ImportMap {
         }
         // now filter out any entries
         let imports = filter_imports(&value.imports, folder);
-        if imports.is_empty() {
+        if imports.inner.is_empty() {
           None
         } else {
           Some((
@@ -322,7 +343,7 @@ impl ImportMap {
 
     w.push('{');
 
-    if !self.imports.is_empty() {
+    if !self.imports.inner.is_empty() {
       w.push('\n');
       w.push_str(r#"  "imports": {"#);
       write_imports(&mut w, &self.imports, 2);
@@ -330,7 +351,7 @@ impl ImportMap {
     }
 
     if !self.scopes.is_empty() {
-      if !self.imports.is_empty() {
+      if !self.imports.inner.is_empty() {
         w.push(',');
       }
       w.push('\n');
@@ -349,7 +370,7 @@ impl ImportMap {
       indent_level: usize,
     ) {
       // sort based on how it originally appeared in the file
-      let mut imports = imports.iter().collect::<Vec<_>>();
+      let mut imports = imports.inner.iter().collect::<Vec<_>>();
       imports.sort_by_key(|v| v.1.index);
 
       for (i, (key, value)) in imports.into_iter().enumerate() {
@@ -396,17 +417,18 @@ pub fn parse_from_json(
   json_string: &str,
 ) -> Result<ImportMapWithDiagnostics, ImportMapError> {
   let mut diagnostics = vec![];
-  let (imports, scopes) = parse_json(json_string, &mut diagnostics)?;
-  let normalized_imports =
-    parse_specifier_map(imports, base_url, &mut diagnostics);
-  let normalized_scopes = parse_scope_map(scopes, base_url, &mut diagnostics)?;
+  let (unresolved_imports, unresolved_scopes) =
+    parse_json(json_string, &mut diagnostics)?;
+  let imports =
+    parse_specifier_map(unresolved_imports, base_url, &mut diagnostics);
+  let scopes = parse_scope_map(unresolved_scopes, base_url, &mut diagnostics)?;
 
   Ok(ImportMapWithDiagnostics {
     diagnostics,
     import_map: ImportMap {
       base_url: base_url.clone(),
-      imports: normalized_imports,
-      scopes: normalized_scopes,
+      imports,
+      scopes,
     },
   })
 }
@@ -538,15 +560,17 @@ fn parse_specifier_map(
   base_url: &Url,
   diagnostics: &mut Vec<String>,
 ) -> SpecifierMap {
-  let mut normalized_map: SpecifierMap = SpecifierMap::new();
+  let mut normalized_map: SpecifierMapInner = SpecifierMapInner::new();
 
   for (i, (key, value)) in imports.into_iter().enumerate() {
     let raw = RawKeyValue { key, value };
-    let normalized_key =
-      match normalize_specifier_key(&raw.key, base_url, diagnostics) {
-        Some(s) => s,
-        None => continue,
-      };
+    let normalized_key = match normalize_specifier_key(&raw.key, base_url) {
+      Ok(s) => s,
+      Err(err) => {
+        diagnostics.push(err);
+        continue;
+      }
+    };
     let potential_address = match &raw.value {
       Some(address) => address,
       None => {
@@ -595,7 +619,10 @@ fn parse_specifier_map(
     Ordering::Equal => unreachable!(),
   });
 
-  normalized_map
+  SpecifierMap {
+    inner: normalized_map,
+    base_url: base_url.clone(),
+  }
 }
 
 /// Convert provided key value string scopes to valid ScopeMap.
@@ -676,20 +703,16 @@ fn try_url_like_specifier(specifier: &str, base: &Url) -> Option<Url> {
 fn normalize_specifier_key(
   specifier_key: &str,
   base_url: &Url,
-  diagnostics: &mut Vec<String>,
-) -> Option<String> {
+) -> Result<String, String> {
   // ignore empty keys
   if specifier_key.is_empty() {
-    diagnostics.push("Invalid empty string specifier.".to_string());
-    return None;
+    Err("Invalid empty string specifier.".to_string())
+  } else if let Some(url) = try_url_like_specifier(specifier_key, base_url) {
+    Ok(url.to_string())
+  } else {
+    // "bare" specifier
+    Ok(specifier_key.to_string())
   }
-
-  if let Some(url) = try_url_like_specifier(specifier_key, base_url) {
-    return Some(url.to_string());
-  }
-
-  // "bare" specifier
-  Some(specifier_key.to_string())
 }
 
 fn append_specifier_to_base(
@@ -778,7 +801,7 @@ fn resolve_imports_match(
   as_url: Option<&Url>,
 ) -> Result<Option<Url>, ImportMapError> {
   // exact-match
-  if let Some(value) = specifier_map.get(normalized_specifier) {
+  if let Some(value) = specifier_map.inner.get(normalized_specifier) {
     if let Some(address) = &value.maybe_address {
       return Ok(Some(address.clone()));
     } else {
@@ -792,7 +815,7 @@ fn resolve_imports_match(
   // Package-prefix match
   // "most-specific wins", i.e. when there are multiple matching keys,
   // choose the longest.
-  for (specifier_key, value) in specifier_map.iter() {
+  for (specifier_key, value) in specifier_map.inner.iter() {
     if !specifier_key.ends_with('/') {
       continue;
     }
@@ -857,7 +880,7 @@ mod test {
   #[test]
   fn mapped_windows_file_specifier() {
     // from issue #11530
-    let mut specifiers = SpecifierMap::new();
+    let mut specifiers = SpecifierMapInner::new();
     specifiers.insert(
       "file:///".to_string(),
       SpecifierMapValue {
@@ -867,6 +890,10 @@ mod test {
         maybe_address: Some(Url::parse("http://localhost/").unwrap()),
       },
     );
+    let specifiers = SpecifierMap {
+      base_url: Url::parse("file:///").unwrap(),
+      inner: specifiers,
+    };
 
     let resolved_specifier =
       resolve_imports_match(&specifiers, "file:///C:/folder/file.ts", None)

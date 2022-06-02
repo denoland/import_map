@@ -25,4 +25,5 @@ serde_json = { version = "1.0.66", features = ["preserve_order"] }
 url = { version = "2.2.2", features = ["serde"] }
 
 [dev-dependencies]
+pretty_assertions = "1.2.1"
 walkdir = "2.3.2"
