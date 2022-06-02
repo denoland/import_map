@@ -611,7 +611,9 @@ fn parse_scope_map(
   let mut normalized_map: ScopesMap = ScopesMap::new();
 
   // Order is preserved because of "preserve_order" feature of "serde_json".
-  for (i, (raw_scope_prefix, potential_specifier_map)) in scope_map.into_iter().enumerate() {
+  for (i, (raw_scope_prefix, potential_specifier_map)) in
+    scope_map.into_iter().enumerate()
+  {
     let scope_prefix_url = match base_url.join(&raw_scope_prefix) {
       Ok(url) => url.to_string(),
       _ => {
@@ -626,7 +628,7 @@ fn parse_scope_map(
     let norm_map =
       parse_specifier_map(potential_specifier_map, base_url, diagnostics);
 
-      let value = ScopesMapValue {
+    let value = ScopesMapValue {
       index: i,
       raw_key: if scope_prefix_url == raw_scope_prefix {
         None
@@ -634,9 +636,9 @@ fn parse_scope_map(
         // only store this if they differ to save memory
         Some(raw_scope_prefix)
       },
-      imports:  norm_map,
+      imports: norm_map,
     };
-    normalized_map.insert(scope_prefix_url,value );
+    normalized_map.insert(scope_prefix_url, value);
   }
 
   // Sort in longest and alphabetical order.
@@ -740,8 +742,11 @@ fn resolve_scopes_match(
 ) -> Result<Option<Url>, ImportMapError> {
   // exact-match
   if let Some(scope_imports) = scopes.get(referrer) {
-    let scope_match =
-      resolve_imports_match(&scope_imports.imports, normalized_specifier, as_url)?;
+    let scope_match = resolve_imports_match(
+      &scope_imports.imports,
+      normalized_specifier,
+      as_url,
+    )?;
     // Return only if there was actual match (not None).
     if scope_match.is_some() {
       return Ok(scope_match);
@@ -752,8 +757,11 @@ fn resolve_scopes_match(
     if normalized_scope_key.ends_with('/')
       && referrer.starts_with(normalized_scope_key)
     {
-      let scope_match =
-        resolve_imports_match(&scope_imports.imports, normalized_specifier, as_url)?;
+      let scope_match = resolve_imports_match(
+        &scope_imports.imports,
+        normalized_specifier,
+        as_url,
+      )?;
       // Return only if there was actual match (not None).
       if scope_match.is_some() {
         return Ok(scope_match);

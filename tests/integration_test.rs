@@ -417,12 +417,9 @@ pub fn outputs_import_map_as_json_empty() {
   let json = r#"{
 }
 "#;
-  let import_map = parse_from_json(
-    &Url::parse("file:///dir/").unwrap(),
-    json
-  )
-  .unwrap()
-  .import_map;
+  let import_map = parse_from_json(&Url::parse("file:///dir/").unwrap(), json)
+    .unwrap()
+    .import_map;
   assert_eq!(import_map.to_json(), json);
 }
 
@@ -434,12 +431,9 @@ pub fn outputs_import_map_as_json_imports_only() {
   }
 }
 "#;
-  let import_map = parse_from_json(
-    &Url::parse("file:///dir/").unwrap(),
-    json
-  )
-  .unwrap()
-  .import_map;
+  let import_map = parse_from_json(&Url::parse("file:///dir/").unwrap(), json)
+    .unwrap()
+    .import_map;
   assert_eq!(import_map.to_json(), json);
 }
 
@@ -454,12 +448,9 @@ pub fn outputs_import_map_as_json_scopes_only() {
   }
 }
 "#;
-  let import_map = parse_from_json(
-    &Url::parse("file:///dir/").unwrap(),
-    json
-  )
-  .unwrap()
-  .import_map;
+  let import_map = parse_from_json(&Url::parse("file:///dir/").unwrap(), json)
+    .unwrap()
+    .import_map;
   assert_eq!(import_map.to_json(), json);
 }
 
@@ -487,12 +478,9 @@ pub fn outputs_import_map_as_json_imports_and_scopes() {
   }
 }
 "#;
-  let import_map = parse_from_json(
-    &Url::parse("file:///dir/").unwrap(),
-    json
-  )
-  .unwrap()
-  .import_map;
+  let import_map = parse_from_json(&Url::parse("file:///dir/").unwrap(), json)
+    .unwrap()
+    .import_map;
   assert_eq!(import_map.to_json(), json);
 }
 
@@ -524,11 +512,13 @@ pub fn strips_folder_from_import_map() {
   )
   .unwrap()
   .import_map;
-  let new_import_map = import_map
-    .with_folder_removed(&Url::parse("file:///dir/vendor/").unwrap());
+  let new_import_map =
+    import_map.with_folder_removed(&Url::parse("file:///dir/vendor/").unwrap());
   assert_eq!(new_import_map.base_url(), import_map.base_url());
 
-  assert_eq!(new_import_map.to_json(), r#"{
+  assert_eq!(
+    new_import_map.to_json(),
+    r#"{
   "imports": {
     "a": "./other/",
     "/~/": "./lib/"
@@ -539,5 +529,6 @@ pub fn strips_folder_from_import_map() {
     }
   }
 }
-"#);
+"#
+  );
 }
