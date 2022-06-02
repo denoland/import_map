@@ -276,6 +276,71 @@ fn from_json_2() {
   let result =
     parse_from_json(&Url::parse("https://deno.land").unwrap(), json_map);
   assert!(result.is_ok());
+  let diagnostics = result.unwrap().diagnostics;
+  assert_eq!(diagnostics.len(), 2);
+  assert_eq!(diagnostics[0], "Invalid address Array([\n    String(\n        \"https://example.com/2\",\n    ),\n]) for the specifier key \"bar\". Addresses must be strings.");
+  assert_eq!(diagnostics[1], "Invalid address Null for the specifier key \"fizz\". Addresses must be strings.");
+}
+
+#[test]
+fn from_json_3() {
+  let json_map = r#"{
+    "imports": {
+      "foo": "https://example.com/1",
+      "bar": "",
+      "npm/": "https://example.com/2",
+      "": "https://example.com/3"
+    }
+  }"#;
+  let result =
+    parse_from_json(&Url::parse("https://deno.land").unwrap(), json_map);
+  assert!(result.is_ok());
+  let diagnostics = result.unwrap().diagnostics;
+  assert_eq!(diagnostics.len(), 3);
+  assert_eq!(
+    diagnostics[0],
+    "Invalid address \"\" for the specifier key \"bar\"."
+  );
+  assert_eq!(diagnostics[1], "Invalid target address \"https://example.com/2\" for package specifier \"npm/\". Package address targets must end with \"/\".");
+  assert_eq!(diagnostics[2], "Invalid empty string specifier.");
+}
+
+#[test]
+fn invalid_top_level_key() {
+  let json_map = r#"{
+    "imports": {
+      "foo": "https://example.com/1"
+    },
+    "baz": {
+      "bar": "https://example.com/2"
+    }
+  }"#;
+  let result =
+    parse_from_json(&Url::parse("https://deno.land").unwrap(), json_map);
+  assert!(result.is_ok());
+  let diagnostics = result.unwrap().diagnostics;
+  assert_eq!(diagnostics.len(), 1);
+  assert_eq!(diagnostics[0], "Invalid top-level key \"baz\". Only \"imports\" and \"scopes\" can be present.");
+}
+
+#[test]
+fn invalid_scope() {
+  let json_map = r#"{
+    "imports": {
+      "foo": "https://example.com/1"
+    },
+    "scopes": {
+      "///bar": {
+        "baz": "https://example.com/2"
+      }
+    }
+  }"#;
+  let result =
+    parse_from_json(&Url::parse("https://deno.land").unwrap(), json_map);
+  assert!(result.is_ok());
+  let diagnostics = result.unwrap().diagnostics;
+  assert_eq!(diagnostics.len(), 1);
+  assert_eq!(diagnostics[0], "Invalid scope \"///bar\" (parsed against base URL \"https://deno.land/\").");
 }
 
 #[test]
