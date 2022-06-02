@@ -411,3 +411,133 @@ fn import_keys() {
     vec!["https://example.com/example/", "https://deno.land/~/", "fs"]
   );
 }
+
+#[test]
+pub fn outputs_import_map_as_json_empty() {
+  let json = r#"{
+}
+"#;
+  let import_map = parse_from_json(
+    &Url::parse("file:///dir/").unwrap(),
+    json
+  )
+  .unwrap()
+  .import_map;
+  assert_eq!(import_map.to_json(), json);
+}
+
+#[test]
+pub fn outputs_import_map_as_json_imports_only() {
+  let json = r#"{
+  "imports": {
+    "a": "./vendor/sub/"
+  }
+}
+"#;
+  let import_map = parse_from_json(
+    &Url::parse("file:///dir/").unwrap(),
+    json
+  )
+  .unwrap()
+  .import_map;
+  assert_eq!(import_map.to_json(), json);
+}
+
+#[test]
+pub fn outputs_import_map_as_json_scopes_only() {
+  let json = r#"{
+  "scopes": {
+    "./vendor/sub/": {
+      "xyz": "./other/",
+      "abc": "./test/"
+    }
+  }
+}
+"#;
+  let import_map = parse_from_json(
+    &Url::parse("file:///dir/").unwrap(),
+    json
+  )
+  .unwrap()
+  .import_map;
+  assert_eq!(import_map.to_json(), json);
+}
+
+#[test]
+pub fn outputs_import_map_as_json_imports_and_scopes() {
+  let json = r#"{
+  "imports": {
+    "dba": "./other/",
+    "b": "./vendor/",
+    "c": "./vendor/sub/",
+    "d": "./vendor/sub/test.ts",
+    "/~/": "./lib/"
+  },
+  "scopes": {
+    "./vendor/sub/": {
+      "a": "./other/"
+    },
+    "./sub/": {
+      "a": "./vendor/sub/"
+    },
+    "./sub2/": {
+      "a": "./vendor/sub/",
+      "b": "./other/"
+    }
+  }
+}
+"#;
+  let import_map = parse_from_json(
+    &Url::parse("file:///dir/").unwrap(),
+    json
+  )
+  .unwrap()
+  .import_map;
+  assert_eq!(import_map.to_json(), json);
+}
+
+#[test]
+pub fn strips_folder_from_import_map() {
+  let import_map = parse_from_json(
+    &Url::parse("file:///dir/").unwrap(),
+    r#"{
+"imports": {
+  "a": "./other/",
+  "b": "./vendor/",
+  "c": "./vendor/sub/",
+  "d": "./vendor/sub/test.ts",
+  "/~/": "./lib/"
+},
+"scopes": {
+  "./vendor/sub/": {
+    "a": "./other/"
+  },
+  "./sub/": {
+    "a": "./vendor/sub/"
+  },
+  "./sub2/": {
+    "a": "./vendor/sub/",
+    "b": "./other/"
+  }
+}
+}"#,
+  )
+  .unwrap()
+  .import_map;
+  let new_import_map = import_map
+    .with_folder_removed(&Url::parse("file:///dir/vendor/").unwrap());
+  assert_eq!(new_import_map.base_url(), import_map.base_url());
+
+  assert_eq!(new_import_map.to_json(), r#"{
+  "imports": {
+    "a": "./other/",
+    "/~/": "./lib/"
+  },
+  "scopes": {
+    "./sub2/": {
+      "b": "./other/"
+    }
+  }
+}
+"#);
+}
