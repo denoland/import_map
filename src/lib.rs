@@ -224,6 +224,17 @@ pub struct ImportMap {
 }
 
 impl ImportMap {
+  pub fn new(base_url: Url) -> Self {
+    Self {
+      base_url: base_url.clone(),
+      imports: SpecifierMap {
+        base_url,
+        inner: Default::default(),
+      },
+      scopes: Default::default(),
+    }
+  }
+
   pub fn base_url(&self) -> &Url {
     &self.base_url
   }
