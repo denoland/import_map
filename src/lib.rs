@@ -4,7 +4,6 @@ use indexmap::IndexMap;
 use serde_json::Map;
 use serde_json::Value;
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
@@ -42,10 +41,178 @@ fn is_special(url: &Url) -> bool {
   SPECIAL_PROTOCOLS.contains(&url.scheme())
 }
 
-type SpecifierMap = IndexMap<String, Option<Url>>;
-type ScopesMap = IndexMap<String, SpecifierMap>;
+#[derive(Debug, Clone)]
+struct SpecifierMapValue {
+  /// The original index in the file. Used to determine the order
+  /// when writing out the import map.
+  index: usize,
+  /// The raw key if it differs from the actual key.
+  raw_key: Option<String>,
+  /// The raw value if it differs from the actual value.
+  raw_value: Option<String>,
+  maybe_address: Option<Url>,
+}
+
+struct RawKeyValue {
+  key: String,
+  value: Option<String>,
+}
+
+impl SpecifierMapValue {
+  pub fn new(
+    index: usize,
+    raw: &RawKeyValue,
+    normalized_key: &str,
+    value: Option<Url>,
+  ) -> Self {
+    Self {
+      index,
+      // we don't store these to reduce memory usage
+      raw_key: if raw.key == normalized_key {
+        None
+      } else {
+        Some(raw.key.to_string())
+      },
+      raw_value: if value.as_ref().map(|v| v.as_str()) == raw.value.as_deref() {
+        None
+      } else {
+        raw.value.as_ref().map(|v| v.to_string())
+      },
+      maybe_address: value,
+    }
+  }
+}
+
+impl serde::Serialize for SpecifierMapValue {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: serde::Serializer,
+  {
+    if let Some(value) = &self.maybe_address {
+      value.serialize(serializer)
+    } else {
+      serializer.serialize_none()
+    }
+  }
+}
+
+#[derive(Debug, Clone)]
+struct ScopesMapValue {
+  /// The original index in the file. Used to determine the order
+  /// when writing out the import map.
+  index: usize,
+  /// The raw key if it differs from the actual key.
+  raw_key: Option<String>,
+  imports: SpecifierMap,
+}
+
+impl serde::Serialize for ScopesMapValue {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: serde::Serializer,
+  {
+    self.imports.serialize(serializer)
+  }
+}
+
+type SpecifierMapInner = IndexMap<String, SpecifierMapValue>;
+
+#[derive(Debug, Clone)]
+pub struct SpecifierMap {
+  base_url: Url,
+  inner: SpecifierMapInner,
+}
+
+impl SpecifierMap {
+  pub fn keys(&self) -> impl Iterator<Item = &str> {
+    self.inner.keys().map(|k| k.as_str())
+  }
+
+  pub fn contains(&self, key: &str) -> bool {
+    if let Ok(key) = normalize_specifier_key(key, &self.base_url) {
+      self.inner.contains_key(&key)
+    } else {
+      false
+    }
+  }
+
+  pub fn append(&mut self, key: String, value: String) -> Result<(), String> {
+    let start_index = self
+      .inner
+      .values()
+      .map(|v| v.index)
+      .max()
+      .map(|index| index + 1)
+      .unwrap_or(0);
+
+    let raw = RawKeyValue {
+      key,
+      value: Some(value),
+    };
+    let key = normalize_specifier_key(&raw.key, &self.base_url)?;
+    if let Some(import_value) = self.inner.get(&key) {
+      let import_val = if let Some(value) = &import_value.maybe_address {
+        value.as_str()
+      } else {
+        "<invalid value>"
+      };
+      return Err(format!(
+        "\"{}\" already exists and is mapped to \"{}\"",
+        key, import_val
+      ));
+    }
+
+    let address_url =
+      match try_url_like_specifier(raw.value.as_ref().unwrap(), &self.base_url)
+      {
+        Some(url) => url,
+        None => {
+          return Err(format!(
+            "Invalid address \"{}\" for the specifier key {:?}.",
+            raw.value.unwrap(),
+            key
+          ));
+        }
+      };
+
+    self.inner.insert(
+      key.to_string(),
+      SpecifierMapValue::new(start_index, &raw, &key, Some(address_url)),
+    );
+    self.sort();
+
+    Ok(())
+  }
+
+  fn sort(&mut self) {
+    // Sort in longest and alphabetical order.
+    self.inner.sort_by(|k1, _v1, k2, _v2| match k1.cmp(k2) {
+      Ordering::Greater => Ordering::Less,
+      Ordering::Less => Ordering::Greater,
+      // index map guarantees that there can't be duplicate keys
+      Ordering::Equal => unreachable!(),
+    });
+  }
+}
+
+impl serde::Serialize for SpecifierMap {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: serde::Serializer,
+  {
+    self.inner.serialize(serializer)
+  }
+}
+
+type ScopesMap = IndexMap<String, ScopesMapValue>;
 type UnresolvedSpecifierMap = IndexMap<String, Option<String>>;
 type UnresolvedScopesMap = IndexMap<String, UnresolvedSpecifierMap>;
+
+#[derive(Debug, Clone)]
+pub struct ImportMapWithDiagnostics {
+  pub import_map: ImportMap,
+  pub diagnostics: Vec<String>,
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportMap {
@@ -56,16 +223,16 @@ pub struct ImportMap {
   scopes: ScopesMap,
 }
 
-#[derive(Debug, Clone)]
-pub struct ImportMapWithDiagnostics {
-  pub import_map: ImportMap,
-  pub diagnostics: Vec<String>,
-}
-
 impl ImportMap {
-  /// Provide the keys of the `imports` property of the import map.
-  pub fn imports_keys(&self) -> Vec<&str> {
-    self.imports.keys().map(|k| k.as_str()).collect()
+  pub fn new(base_url: Url) -> Self {
+    Self {
+      base_url: base_url.clone(),
+      imports: SpecifierMap {
+        base_url,
+        inner: Default::default(),
+      },
+      scopes: Default::default(),
+    }
   }
 
   pub fn base_url(&self) -> &Url {
@@ -118,50 +285,183 @@ impl ImportMap {
     ))
   }
 
-  /// This is a non-standard method that allows to add
-  /// more "imports" mappings to already existing import map.
-  pub fn update_imports(
+  pub fn imports(&self) -> &SpecifierMap {
+    &self.imports
+  }
+
+  pub fn imports_mut(&mut self) -> &mut SpecifierMap {
+    &mut self.imports
+  }
+
+  pub fn get_or_append_scope_mut(
     &mut self,
-    imports: HashMap<String, String>,
-  ) -> Result<Vec<String>, ImportMapError> {
-    let mut diagnostics = vec![];
-
-    for (key, value) in imports.iter() {
-      if let Some(import_value) = self.imports.get(key) {
-        let import_val = if let Some(value) = import_value {
-          value.as_str()
-        } else {
-          "<invalid value>"
-        };
-        diagnostics.push(format!(
-          "\"{}\" already exists and is mapped to \"{}\"",
-          key, import_val
+    key: &str,
+  ) -> Result<&mut SpecifierMap, String> {
+    let scope_prefix_url = match self.base_url.join(key) {
+      Ok(url) => url.to_string(),
+      _ => {
+        return Err(format!(
+          "Invalid scope \"{}\" (parsed against base URL \"{}\").",
+          key, self.base_url
         ));
-        continue;
       }
+    };
 
-      let address_url = match try_url_like_specifier(value, &self.base_url) {
-        Some(url) => url,
-        None => {
-          diagnostics.push(format!(
-            "Invalid address \"{}\" for the specifier key {:?}.",
-            value, key
-          ));
-          continue;
-        }
-      };
-      self.imports.insert(key.to_string(), Some(address_url));
+    // todo(dsherret): was fighting the borrow checker here... these should be
+    // created lazily
+    let base_url = self.base_url.clone();
+    let index = self.scopes.values().map(|s| s.index + 1).max().unwrap_or(0);
+    Ok(
+      &mut self
+        .scopes
+        .entry(scope_prefix_url.clone())
+        .or_insert_with(|| {
+          ScopesMapValue {
+            index,
+            raw_key: if scope_prefix_url == key {
+              None
+            } else {
+              // only store this if they differ to save memory
+              Some(key.to_string())
+            },
+            imports: SpecifierMap {
+              base_url,
+              inner: Default::default(),
+            },
+          }
+        })
+        .imports,
+    )
+  }
+
+  /// Removes any imports or scopes referencing the provided folder in
+  /// the import map.
+  pub fn with_folder_removed(&self, folder: &Url) -> Self {
+    fn filter_imports(imports: &SpecifierMap, path: &Url) -> SpecifierMap {
+      SpecifierMap {
+        base_url: imports.base_url.clone(),
+        inner: imports
+          .inner
+          .iter()
+          .filter_map(|(key, value)| {
+            if let Some(value) = &value.maybe_address {
+              if value.as_str().starts_with(&path.as_str()) {
+                return None;
+              }
+            }
+            Some((key.to_owned(), value.to_owned()))
+          })
+          .collect::<SpecifierMapInner>(),
+      }
     }
 
-    // Sort in longest and alphabetical order.
-    self.imports.sort_by(|k1, _v1, k2, _v2| match k1.cmp(k2) {
-      Ordering::Greater => Ordering::Less,
-      Ordering::Less => Ordering::Greater,
-      // JSON guarantees that there can't be duplicate keys
-      Ordering::Equal => unreachable!(),
-    });
+    let base_url = self.base_url().to_owned();
+    let imports = filter_imports(&self.imports, folder);
+    let scopes = self
+      .scopes
+      .iter()
+      .filter_map(|(key, value)| {
+        if let Ok(base) = base_url.join(key) {
+          if base.as_str().starts_with(&folder.as_str()) {
+            return None;
+          }
+        }
+        // now filter out any entries
+        let imports = filter_imports(&value.imports, folder);
+        if imports.inner.is_empty() {
+          None
+        } else {
+          Some((
+            key.to_owned(),
+            ScopesMapValue {
+              index: value.index,
+              raw_key: value.raw_key.clone(),
+              imports,
+            },
+          ))
+        }
+      })
+      .collect::<ScopesMap>();
 
-    Ok(diagnostics)
+    Self {
+      base_url,
+      imports,
+      scopes,
+    }
+  }
+
+  /// Gets the import map as JSON text.
+  pub fn to_json(&self) -> String {
+    let mut w = String::new();
+
+    w.push('{');
+
+    if !self.imports.inner.is_empty() {
+      w.push('\n');
+      w.push_str(r#"  "imports": {"#);
+      write_imports(&mut w, &self.imports, 2);
+      w.push_str("\n  }");
+    }
+
+    if !self.scopes.is_empty() {
+      if !self.imports.inner.is_empty() {
+        w.push(',');
+      }
+      w.push('\n');
+      w.push_str(r#"  "scopes": {"#);
+      write_scopes(&mut w, &self.scopes);
+      w.push_str("\n  }");
+    }
+
+    w.push_str("\n}\n");
+
+    return w;
+
+    fn write_imports(
+      w: &mut String,
+      imports: &SpecifierMap,
+      indent_level: usize,
+    ) {
+      // sort based on how it originally appeared in the file
+      let mut imports = imports.inner.iter().collect::<Vec<_>>();
+      imports.sort_by_key(|v| v.1.index);
+
+      for (i, (key, value)) in imports.into_iter().enumerate() {
+        w.push_str(if i > 0 { ",\n" } else { "\n" });
+        let raw_key = value.raw_key.as_ref().unwrap_or(key);
+        let raw_value = value
+          .raw_value
+          .as_deref()
+          .or_else(|| value.maybe_address.as_ref().map(|a| a.as_str()));
+
+        w.push_str(&"  ".repeat(indent_level));
+        w.push_str(&format!(r#""{}": "#, escape_string(raw_key)));
+        if let Some(value) = raw_value {
+          w.push_str(&format!(r#""{}""#, escape_string(value)));
+        } else {
+          w.push_str("null");
+        }
+      }
+    }
+
+    fn write_scopes(w: &mut String, scopes: &ScopesMap) {
+      // sort based on how the it originally appeared in the file
+      let mut scopes = scopes.iter().collect::<Vec<_>>();
+      scopes.sort_by_key(|v| v.1.index);
+
+      for (i, (key, value)) in scopes.into_iter().enumerate() {
+        w.push_str(if i > 0 { ",\n" } else { "\n" });
+        let raw_key = value.raw_key.as_ref().unwrap_or(key);
+
+        w.push_str(&format!(r#"    "{}": {{"#, escape_string(raw_key)));
+        write_imports(w, &value.imports, 3);
+        w.push_str("\n    }");
+      }
+    }
+
+    fn escape_string(text: &str) -> String {
+      text.replace('"', "\\\"")
+    }
   }
 }
 
@@ -169,6 +469,27 @@ pub fn parse_from_json(
   base_url: &Url,
   json_string: &str,
 ) -> Result<ImportMapWithDiagnostics, ImportMapError> {
+  let mut diagnostics = vec![];
+  let (unresolved_imports, unresolved_scopes) =
+    parse_json(json_string, &mut diagnostics)?;
+  let imports =
+    parse_specifier_map(unresolved_imports, base_url, &mut diagnostics);
+  let scopes = parse_scope_map(unresolved_scopes, base_url, &mut diagnostics)?;
+
+  Ok(ImportMapWithDiagnostics {
+    diagnostics,
+    import_map: ImportMap {
+      base_url: base_url.clone(),
+      imports,
+      scopes,
+    },
+  })
+}
+
+fn parse_json(
+  json_string: &str,
+  diagnostics: &mut Vec<String>,
+) -> Result<(UnresolvedSpecifierMap, UnresolvedScopesMap), ImportMapError> {
   let mut v: Value = match serde_json::from_str(json_string) {
     Ok(v) => v,
     Err(err) => {
@@ -188,11 +509,10 @@ pub fn parse_from_json(
     }
   }
 
-  let mut diagnostics = vec![];
   let imports = if v.get("imports").is_some() {
     match v["imports"].take() {
       Value::Object(imports_map) => {
-        parse_specifier_map_json(imports_map, &mut diagnostics)
+        parse_specifier_map_json(imports_map, diagnostics)
       }
       _ => {
         return Err(ImportMapError::Other(
@@ -207,7 +527,7 @@ pub fn parse_from_json(
   let scopes = if v.get("scopes").is_some() {
     match v["scopes"].take() {
       Value::Object(scopes_map) => {
-        parse_scopes_map_json(scopes_map, &mut diagnostics)?
+        parse_scopes_map_json(scopes_map, diagnostics)?
       }
       _ => {
         return Err(ImportMapError::Other(
@@ -231,18 +551,7 @@ pub fn parse_from_json(
     diagnostics.push(format!("Invalid top-level key \"{}\". Only \"imports\" and \"scopes\" can be present.", key));
   }
 
-  let normalized_imports =
-    parse_specifier_map(&imports, base_url, &mut diagnostics);
-  let normalized_scopes = parse_scope_map(&scopes, base_url, &mut diagnostics)?;
-
-  Ok(ImportMapWithDiagnostics {
-    diagnostics,
-    import_map: ImportMap {
-      base_url: base_url.clone(),
-      imports: normalized_imports,
-      scopes: normalized_scopes,
-    },
-  })
+  Ok((imports, scopes))
 }
 
 /// Convert provided JSON map to key values
@@ -300,22 +609,26 @@ fn parse_scopes_map_json(
 /// - order of iteration must be retained
 /// - SpecifierMap's keys are sorted in longest and alphabetic order
 fn parse_specifier_map(
-  imports: &UnresolvedSpecifierMap,
+  imports: UnresolvedSpecifierMap,
   base_url: &Url,
   diagnostics: &mut Vec<String>,
 ) -> SpecifierMap {
-  let mut normalized_map: SpecifierMap = SpecifierMap::new();
+  let mut normalized_map: SpecifierMapInner = SpecifierMapInner::new();
 
-  for (specifier_key, potential_address) in imports.iter() {
-    let normalized_specifier_key =
-      match normalize_specifier_key(specifier_key, base_url, diagnostics) {
-        Some(s) => s,
-        None => continue,
-      };
-    let potential_address = match potential_address {
+  for (i, (key, value)) in imports.into_iter().enumerate() {
+    let raw = RawKeyValue { key, value };
+    let normalized_key = match normalize_specifier_key(&raw.key, base_url) {
+      Ok(s) => s,
+      Err(err) => {
+        diagnostics.push(err);
+        continue;
+      }
+    };
+    let potential_address = match &raw.value {
       Some(address) => address,
       None => {
-        normalized_map.insert(normalized_specifier_key, None);
+        let value = SpecifierMapValue::new(i, &raw, &normalized_key, None);
+        normalized_map.insert(normalized_key, value);
         continue;
       }
     };
@@ -326,25 +639,29 @@ fn parse_specifier_map(
       None => {
         diagnostics.push(format!(
           "Invalid address \"{}\" for the specifier key \"{}\".",
-          potential_address, specifier_key
+          potential_address, raw.key
         ));
-        normalized_map.insert(normalized_specifier_key, None);
+        let value = SpecifierMapValue::new(i, &raw, &normalized_key, None);
+        normalized_map.insert(normalized_key, value);
         continue;
       }
     };
 
     let address_url_string = address_url.to_string();
-    if specifier_key.ends_with('/') && !address_url_string.ends_with('/') {
+    if raw.key.ends_with('/') && !address_url_string.ends_with('/') {
       diagnostics.push(format!(
         "Invalid target address {:?} for package specifier {:?}. \
             Package address targets must end with \"/\".",
-        address_url_string, specifier_key
+        address_url_string, raw.key
       ));
-      normalized_map.insert(normalized_specifier_key, None);
+      let value = SpecifierMapValue::new(i, &raw, &normalized_key, None);
+      normalized_map.insert(normalized_key, value);
       continue;
     }
 
-    normalized_map.insert(normalized_specifier_key, Some(address_url));
+    let value =
+      SpecifierMapValue::new(i, &raw, &normalized_key, Some(address_url));
+    normalized_map.insert(normalized_key, value);
   }
 
   // Sort in longest and alphabetical order.
@@ -355,7 +672,10 @@ fn parse_specifier_map(
     Ordering::Equal => unreachable!(),
   });
 
-  normalized_map
+  SpecifierMap {
+    inner: normalized_map,
+    base_url: base_url.clone(),
+  }
 }
 
 /// Convert provided key value string scopes to valid ScopeMap.
@@ -364,20 +684,22 @@ fn parse_specifier_map(
 /// - order of iteration must be retained
 /// - ScopeMap's keys are sorted in longest and alphabetic order
 fn parse_scope_map(
-  scope_map: &UnresolvedScopesMap,
+  scope_map: UnresolvedScopesMap,
   base_url: &Url,
   diagnostics: &mut Vec<String>,
 ) -> Result<ScopesMap, ImportMapError> {
   let mut normalized_map: ScopesMap = ScopesMap::new();
 
   // Order is preserved because of "preserve_order" feature of "serde_json".
-  for (scope_prefix, potential_specifier_map) in scope_map.iter() {
-    let scope_prefix_url = match base_url.join(scope_prefix) {
+  for (i, (raw_scope_prefix, potential_specifier_map)) in
+    scope_map.into_iter().enumerate()
+  {
+    let scope_prefix_url = match base_url.join(&raw_scope_prefix) {
       Ok(url) => url.to_string(),
       _ => {
         diagnostics.push(format!(
           "Invalid scope \"{}\" (parsed against base URL \"{}\").",
-          scope_prefix, base_url
+          raw_scope_prefix, base_url
         ));
         continue;
       }
@@ -386,7 +708,17 @@ fn parse_scope_map(
     let norm_map =
       parse_specifier_map(potential_specifier_map, base_url, diagnostics);
 
-    normalized_map.insert(scope_prefix_url, norm_map);
+    let value = ScopesMapValue {
+      index: i,
+      raw_key: if scope_prefix_url == raw_scope_prefix {
+        None
+      } else {
+        // only store this if they differ to save memory
+        Some(raw_scope_prefix)
+      },
+      imports: norm_map,
+    };
+    normalized_map.insert(scope_prefix_url, value);
   }
 
   // Sort in longest and alphabetical order.
@@ -424,20 +756,16 @@ fn try_url_like_specifier(specifier: &str, base: &Url) -> Option<Url> {
 fn normalize_specifier_key(
   specifier_key: &str,
   base_url: &Url,
-  diagnostics: &mut Vec<String>,
-) -> Option<String> {
+) -> Result<String, String> {
   // ignore empty keys
   if specifier_key.is_empty() {
-    diagnostics.push("Invalid empty string specifier.".to_string());
-    return None;
+    Err("Invalid empty string specifier.".to_string())
+  } else if let Some(url) = try_url_like_specifier(specifier_key, base_url) {
+    Ok(url.to_string())
+  } else {
+    // "bare" specifier
+    Ok(specifier_key.to_string())
   }
-
-  if let Some(url) = try_url_like_specifier(specifier_key, base_url) {
-    return Some(url.to_string());
-  }
-
-  // "bare" specifier
-  Some(specifier_key.to_string())
 }
 
 fn append_specifier_to_base(
@@ -490,8 +818,11 @@ fn resolve_scopes_match(
 ) -> Result<Option<Url>, ImportMapError> {
   // exact-match
   if let Some(scope_imports) = scopes.get(referrer) {
-    let scope_match =
-      resolve_imports_match(scope_imports, normalized_specifier, as_url)?;
+    let scope_match = resolve_imports_match(
+      &scope_imports.imports,
+      normalized_specifier,
+      as_url,
+    )?;
     // Return only if there was actual match (not None).
     if scope_match.is_some() {
       return Ok(scope_match);
@@ -502,8 +833,11 @@ fn resolve_scopes_match(
     if normalized_scope_key.ends_with('/')
       && referrer.starts_with(normalized_scope_key)
     {
-      let scope_match =
-        resolve_imports_match(scope_imports, normalized_specifier, as_url)?;
+      let scope_match = resolve_imports_match(
+        &scope_imports.imports,
+        normalized_specifier,
+        as_url,
+      )?;
       // Return only if there was actual match (not None).
       if scope_match.is_some() {
         return Ok(scope_match);
@@ -520,8 +854,8 @@ fn resolve_imports_match(
   as_url: Option<&Url>,
 ) -> Result<Option<Url>, ImportMapError> {
   // exact-match
-  if let Some(maybe_address) = specifier_map.get(normalized_specifier) {
-    if let Some(address) = maybe_address {
+  if let Some(value) = specifier_map.inner.get(normalized_specifier) {
+    if let Some(address) = &value.maybe_address {
       return Ok(Some(address.clone()));
     } else {
       return Err(ImportMapError::Other(format!(
@@ -534,7 +868,7 @@ fn resolve_imports_match(
   // Package-prefix match
   // "most-specific wins", i.e. when there are multiple matching keys,
   // choose the longest.
-  for (specifier_key, maybe_address) in specifier_map.iter() {
+  for (specifier_key, value) in specifier_map.inner.iter() {
     if !specifier_key.ends_with('/') {
       continue;
     }
@@ -549,7 +883,7 @@ fn resolve_imports_match(
       }
     }
 
-    let resolution_result = maybe_address.as_ref().ok_or_else(|| {
+    let resolution_result = value.maybe_address.as_ref().ok_or_else(|| {
       ImportMapError::Other(format!(
         "Blocked by null entry for \"{:?}\"",
         specifier_key
@@ -599,11 +933,20 @@ mod test {
   #[test]
   fn mapped_windows_file_specifier() {
     // from issue #11530
-    let mut specifiers = SpecifierMap::new();
+    let mut specifiers = SpecifierMapInner::new();
     specifiers.insert(
       "file:///".to_string(),
-      Some(Url::parse("http://localhost/").unwrap()),
+      SpecifierMapValue {
+        index: 0,
+        raw_key: None,
+        raw_value: None,
+        maybe_address: Some(Url::parse("http://localhost/").unwrap()),
+      },
     );
+    let specifiers = SpecifierMap {
+      base_url: Url::parse("file:///").unwrap(),
+      inner: specifiers,
+    };
 
     let resolved_specifier =
       resolve_imports_match(&specifiers, "file:///C:/folder/file.ts", None)

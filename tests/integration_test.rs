@@ -1,8 +1,8 @@
 // Copyright 2021-2022 the Deno authors. All rights reserved. MIT license.
 
 use import_map::parse_from_json;
+use pretty_assertions::assert_eq;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use url::Url;
@@ -395,7 +395,7 @@ fn querystring() {
 }
 
 #[test]
-fn update_imports() {
+fn append_imports() {
   let json_map = r#"{
     "imports": {
       "fs": "https://example.com/1"
@@ -405,29 +405,39 @@ fn update_imports() {
     parse_from_json(&Url::parse("https://deno.land").unwrap(), json_map)
       .unwrap()
       .import_map;
-  let mut mappings = HashMap::new();
-  mappings.insert(
-    "assert".to_string(),
-    "https://deno.land/std/node/assert.ts".to_string(),
-  );
-  mappings.insert(
-    "child_process".to_string(),
-    "https://deno.land/std/node/child_process.ts".to_string(),
-  );
-  mappings.insert(
-    "fs".to_string(),
-    "https://deno.land/std/node/fs.ts".to_string(),
-  );
-  mappings.insert(
-    "url".to_string(),
-    "https://deno.land/std/node/url.ts".to_string(),
-  );
-  let diagnostics = import_map.update_imports(mappings).unwrap();
-  assert_eq!(diagnostics.len(), 1);
+  import_map
+    .imports_mut()
+    .append(
+      "assert".to_string(),
+      "https://deno.land/std/node/assert.ts".to_string(),
+    )
+    .unwrap();
+  import_map
+    .imports_mut()
+    .append(
+      "child_process".to_string(),
+      "https://deno.land/std/node/child_process.ts".to_string(),
+    )
+    .unwrap();
   assert_eq!(
-    diagnostics[0],
+    import_map
+      .imports_mut()
+      .append(
+        "fs".to_string(),
+        "https://deno.land/std/node/fs.ts".to_string(),
+      )
+      .err()
+      .unwrap(),
     "\"fs\" already exists and is mapped to \"https://example.com/1\""
   );
+  import_map
+    .imports_mut()
+    .append(
+      "url".to_string(),
+      "https://deno.land/std/node/url.ts".to_string(),
+    )
+    .unwrap();
+
   assert_eq!(
     import_map
       .resolve("assert", &Url::parse("https://deno.land").unwrap())
@@ -459,11 +469,52 @@ fn update_imports() {
 }
 
 #[test]
+fn get_or_append_scope_mut() {
+  let mut import_map =
+    parse_from_json(&Url::parse("https://deno.land").unwrap(), "{}")
+      .unwrap()
+      .import_map;
+
+  // test adding
+  let other_scopes = import_map.get_or_append_scope_mut("/other").unwrap();
+  other_scopes
+    .append("test".to_string(), "/other/".to_string())
+    .unwrap();
+
+  // test adding with a key that will resolve to the same as the first one
+  let other_scopes = import_map
+    .get_or_append_scope_mut("https://deno.land/other")
+    .unwrap();
+  other_scopes
+    .append("second".to_string(), "/other2/".to_string())
+    .unwrap();
+
+  // now add an empty scope
+  import_map.get_or_append_scope_mut("/empty").unwrap();
+
+  assert_eq!(
+    import_map.to_json(),
+    r#"{
+  "scopes": {
+    "/other": {
+      "test": "/other/",
+      "second": "/other2/"
+    },
+    "/empty": {
+    }
+  }
+}
+"#
+  );
+}
+
+#[test]
 fn import_keys() {
   let json_map = r#"{
     "imports": {
       "fs": "https://example.com/1",
-      "https://example.com/example/": "https://example.com/2/"
+      "https://example.com/example/": "https://example.com/2/",
+      "/~/": "./lib/"
     }
   }"#;
   let import_map =
@@ -471,7 +522,128 @@ fn import_keys() {
       .unwrap()
       .import_map;
   assert_eq!(
-    import_map.imports_keys(),
-    vec!["https://example.com/example/", "fs"]
+    import_map.imports().keys().collect::<Vec<_>>(),
+    vec!["https://example.com/example/", "https://deno.land/~/", "fs"]
+  );
+}
+
+#[test]
+pub fn outputs_import_map_as_json_empty() {
+  let json = r#"{
+}
+"#;
+  let import_map = parse_from_json(&Url::parse("file:///dir/").unwrap(), json)
+    .unwrap()
+    .import_map;
+  assert_eq!(import_map.to_json(), json);
+}
+
+#[test]
+pub fn outputs_import_map_as_json_imports_only() {
+  let json = r#"{
+  "imports": {
+    "a": "./vendor/sub/"
+  }
+}
+"#;
+  let import_map = parse_from_json(&Url::parse("file:///dir/").unwrap(), json)
+    .unwrap()
+    .import_map;
+  assert_eq!(import_map.to_json(), json);
+}
+
+#[test]
+pub fn outputs_import_map_as_json_scopes_only() {
+  let json = r#"{
+  "scopes": {
+    "./vendor/sub/": {
+      "xyz": "./other/",
+      "abc": "./test/"
+    }
+  }
+}
+"#;
+  let import_map = parse_from_json(&Url::parse("file:///dir/").unwrap(), json)
+    .unwrap()
+    .import_map;
+  assert_eq!(import_map.to_json(), json);
+}
+
+#[test]
+pub fn outputs_import_map_as_json_imports_and_scopes() {
+  let json = r#"{
+  "imports": {
+    "dba": "./other/",
+    "b": "./vendor/",
+    "c": "./vendor/sub/",
+    "d": "./vendor/sub/test.ts",
+    "/~/": "./lib/"
+  },
+  "scopes": {
+    "./vendor/sub/": {
+      "a": "./other/"
+    },
+    "./sub/": {
+      "a": "./vendor/sub/"
+    },
+    "./sub2/": {
+      "a": "./vendor/sub/",
+      "b": "./other/"
+    }
+  }
+}
+"#;
+  let import_map = parse_from_json(&Url::parse("file:///dir/").unwrap(), json)
+    .unwrap()
+    .import_map;
+  assert_eq!(import_map.to_json(), json);
+}
+
+#[test]
+pub fn strips_folder_from_import_map() {
+  let import_map = parse_from_json(
+    &Url::parse("file:///dir/").unwrap(),
+    r#"{
+"imports": {
+  "a": "./other/",
+  "b": "./vendor/",
+  "c": "./vendor/sub/",
+  "d": "./vendor/sub/test.ts",
+  "/~/": "./lib/"
+},
+"scopes": {
+  "./vendor/sub/": {
+    "a": "./other/"
+  },
+  "./sub/": {
+    "a": "./vendor/sub/"
+  },
+  "./sub2/": {
+    "a": "./vendor/sub/",
+    "b": "./other/"
+  }
+}
+}"#,
+  )
+  .unwrap()
+  .import_map;
+  let new_import_map =
+    import_map.with_folder_removed(&Url::parse("file:///dir/vendor/").unwrap());
+  assert_eq!(new_import_map.base_url(), import_map.base_url());
+
+  assert_eq!(
+    new_import_map.to_json(),
+    r#"{
+  "imports": {
+    "a": "./other/",
+    "/~/": "./lib/"
+  },
+  "scopes": {
+    "./sub2/": {
+      "b": "./other/"
+    }
+  }
+}
+"#
   );
 }
