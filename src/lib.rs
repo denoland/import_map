@@ -41,6 +41,18 @@ fn is_special(url: &Url) -> bool {
   SPECIAL_PROTOCOLS.contains(&url.scheme())
 }
 
+/// A key value entry in an import map's "imports", or imports of a scope.
+pub struct SpecifierMapEntry<'a> {
+  /// Resolved key.
+  pub key: &'a str,
+  /// Text of the key in the import map file.
+  pub raw_key: &'a str,
+  /// Resolved value.
+  pub value: Option<&'a Url>,
+  /// Text of the value found in the import map file.
+  pub raw_value: &'a str,
+}
+
 #[derive(Debug, Clone)]
 struct SpecifierMapValue {
   /// The original index in the file. Used to determine the order
@@ -126,6 +138,17 @@ pub struct SpecifierMap {
 impl SpecifierMap {
   pub fn keys(&self) -> impl Iterator<Item = &str> {
     self.inner.keys().map(|k| k.as_str())
+  }
+
+  /// Gets the raw key values.
+  pub fn entries(&self) -> impl Iterator<Item = SpecifierMapEntry<'_>> {
+    self.inner.iter().map(|(k, v)| SpecifierMapEntry {
+      key: k.as_str(),
+      raw_key: v.raw_key.as_deref().unwrap_or(k.as_str()),
+      value: v.maybe_address.as_ref(),
+      // one of these options should be set, so unwrap at the end
+      raw_value: v.raw_value.as_deref().or_else(|| v.maybe_address.as_ref().map(|a| a.as_str())).unwrap(),
+    })
   }
 
   pub fn contains(&self, key: &str) -> bool {
