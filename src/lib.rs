@@ -41,6 +41,18 @@ fn is_special(url: &Url) -> bool {
   SPECIAL_PROTOCOLS.contains(&url.scheme())
 }
 
+/// A key value entry in an import map's "imports", or imports of a scope.
+pub struct SpecifierMapEntry<'a> {
+  /// Resolved key.
+  pub key: &'a str,
+  /// Text of the key in the import map file.
+  pub raw_key: &'a str,
+  /// Resolved value.
+  pub value: Option<&'a Url>,
+  /// Text of the value found in the import map file.
+  pub raw_value: Option<&'a str>,
+}
+
 #[derive(Debug, Clone)]
 struct SpecifierMapValue {
   /// The original index in the file. Used to determine the order
@@ -128,6 +140,19 @@ impl SpecifierMap {
     self.inner.keys().map(|k| k.as_str())
   }
 
+  /// Gets the raw key values.
+  pub fn entries(&self) -> impl Iterator<Item = SpecifierMapEntry<'_>> {
+    self.inner.iter().map(|(k, v)| SpecifierMapEntry {
+      key: k.as_str(),
+      raw_key: v.raw_key.as_deref().unwrap_or(k.as_str()),
+      value: v.maybe_address.as_ref(),
+      raw_value: v
+        .raw_value
+        .as_deref()
+        .or_else(|| v.maybe_address.as_ref().map(|a| a.as_str())),
+    })
+  }
+
   pub fn contains(&self, key: &str) -> bool {
     if let Ok(key) = normalize_specifier_key(key, &self.base_url) {
       self.inner.contains_key(&key)
@@ -207,6 +232,16 @@ impl serde::Serialize for SpecifierMap {
 type ScopesMap = IndexMap<String, ScopesMapValue>;
 type UnresolvedSpecifierMap = IndexMap<String, Option<String>>;
 type UnresolvedScopesMap = IndexMap<String, UnresolvedSpecifierMap>;
+
+/// A key value entry of a scope.
+pub struct ScopeEntry<'a> {
+  /// Resolved key.
+  pub key: &'a str,
+  /// Text of the key in the import map file.
+  pub raw_key: &'a str,
+  /// Specifier map contained in the scope.
+  pub imports: &'a SpecifierMap,
+}
 
 #[derive(Debug, Clone)]
 pub struct ImportMapWithDiagnostics {
@@ -291,6 +326,14 @@ impl ImportMap {
 
   pub fn imports_mut(&mut self) -> &mut SpecifierMap {
     &mut self.imports
+  }
+
+  pub fn scopes(&self) -> impl Iterator<Item = ScopeEntry<'_>> {
+    self.scopes.iter().map(|scope| ScopeEntry {
+      key: scope.0.as_str(),
+      raw_key: scope.1.raw_key.as_deref().unwrap_or(scope.0.as_str()),
+      imports: &scope.1.imports,
+    })
   }
 
   pub fn get_or_append_scope_mut(
