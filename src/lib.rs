@@ -146,7 +146,10 @@ impl SpecifierMap {
       key: k.as_str(),
       raw_key: v.raw_key.as_deref().unwrap_or(k.as_str()),
       value: v.maybe_address.as_ref(),
-      raw_value: v.raw_value.as_deref().or_else(|| v.maybe_address.as_ref().map(|a| a.as_str())),
+      raw_value: v
+        .raw_value
+        .as_deref()
+        .or_else(|| v.maybe_address.as_ref().map(|a| a.as_str())),
     })
   }
 
