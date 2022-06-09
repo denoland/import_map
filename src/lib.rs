@@ -334,62 +334,6 @@ impl ImportMap {
     )
   }
 
-  /// Removes any imports or scopes referencing the provided folder in
-  /// the import map.
-  pub fn with_folder_removed(&self, folder: &Url) -> Self {
-    fn filter_imports(imports: &SpecifierMap, path: &Url) -> SpecifierMap {
-      SpecifierMap {
-        base_url: imports.base_url.clone(),
-        inner: imports
-          .inner
-          .iter()
-          .filter_map(|(key, value)| {
-            if let Some(value) = &value.maybe_address {
-              if value.as_str().starts_with(&path.as_str()) {
-                return None;
-              }
-            }
-            Some((key.to_owned(), value.to_owned()))
-          })
-          .collect::<SpecifierMapInner>(),
-      }
-    }
-
-    let base_url = self.base_url().to_owned();
-    let imports = filter_imports(&self.imports, folder);
-    let scopes = self
-      .scopes
-      .iter()
-      .filter_map(|(key, value)| {
-        if let Ok(base) = base_url.join(key) {
-          if base.as_str().starts_with(&folder.as_str()) {
-            return None;
-          }
-        }
-        // now filter out any entries
-        let imports = filter_imports(&value.imports, folder);
-        if imports.inner.is_empty() {
-          None
-        } else {
-          Some((
-            key.to_owned(),
-            ScopesMapValue {
-              index: value.index,
-              raw_key: value.raw_key.clone(),
-              imports,
-            },
-          ))
-        }
-      })
-      .collect::<ScopesMap>();
-
-    Self {
-      base_url,
-      imports,
-      scopes,
-    }
-  }
-
   /// Gets the import map as JSON text.
   pub fn to_json(&self) -> String {
     let mut w = String::new();
