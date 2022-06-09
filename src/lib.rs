@@ -50,7 +50,7 @@ pub struct SpecifierMapEntry<'a> {
   /// Resolved value.
   pub value: Option<&'a Url>,
   /// Text of the value found in the import map file.
-  pub raw_value: &'a str,
+  pub raw_value: Option<&'a str>,
 }
 
 #[derive(Debug, Clone)]
@@ -146,8 +146,7 @@ impl SpecifierMap {
       key: k.as_str(),
       raw_key: v.raw_key.as_deref().unwrap_or(k.as_str()),
       value: v.maybe_address.as_ref(),
-      // one of these options should be set, so unwrap at the end
-      raw_value: v.raw_value.as_deref().or_else(|| v.maybe_address.as_ref().map(|a| a.as_str())).unwrap(),
+      raw_value: v.raw_value.as_deref().or_else(|| v.maybe_address.as_ref().map(|a| a.as_str())),
     })
   }
 
