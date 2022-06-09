@@ -233,6 +233,16 @@ type ScopesMap = IndexMap<String, ScopesMapValue>;
 type UnresolvedSpecifierMap = IndexMap<String, Option<String>>;
 type UnresolvedScopesMap = IndexMap<String, UnresolvedSpecifierMap>;
 
+/// A key value entry of a scope.
+pub struct ScopeEntry<'a> {
+  /// Resolved key.
+  pub key: &'a str,
+  /// Text of the key in the import map file.
+  pub raw_key: &'a str,
+  /// Specifier map contained in the scope.
+  pub value: &'a SpecifierMap,
+}
+
 #[derive(Debug, Clone)]
 pub struct ImportMapWithDiagnostics {
   pub import_map: ImportMap,
@@ -316,6 +326,14 @@ impl ImportMap {
 
   pub fn imports_mut(&mut self) -> &mut SpecifierMap {
     &mut self.imports
+  }
+
+  pub fn scopes(&self) -> impl Iterator<Item = ScopeEntry<'_>> {
+    self.scopes.iter().map(|scope| ScopeEntry {
+      key: scope.0.as_str(),
+      raw_key: scope.1.raw_key.as_deref().unwrap_or(scope.0.as_str()),
+      value: &scope.1.imports,
+    })
   }
 
   pub fn get_or_append_scope_mut(
