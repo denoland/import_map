@@ -240,7 +240,7 @@ pub struct ScopeEntry<'a> {
   /// Text of the key in the import map file.
   pub raw_key: &'a str,
   /// Specifier map contained in the scope.
-  pub value: &'a SpecifierMap,
+  pub imports: &'a SpecifierMap,
 }
 
 #[derive(Debug, Clone)]
@@ -332,7 +332,7 @@ impl ImportMap {
     self.scopes.iter().map(|scope| ScopeEntry {
       key: scope.0.as_str(),
       raw_key: scope.1.raw_key.as_deref().unwrap_or(scope.0.as_str()),
-      value: &scope.1.imports,
+      imports: &scope.1.imports,
     })
   }
 
