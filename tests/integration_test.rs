@@ -1,6 +1,7 @@
 // Copyright 2021-2022 the Deno authors. All rights reserved. MIT license.
 
 use import_map::parse_from_json;
+use import_map::ImportMapWithDiagnostics;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use std::path::Path;
@@ -303,6 +304,77 @@ fn from_json_3() {
   );
   assert_eq!(diagnostics[1], "Invalid target address \"https://example.com/2\" for package specifier \"npm/\". Package address targets must end with \"/\".");
   assert_eq!(diagnostics[2], "Invalid empty string specifier.");
+}
+
+#[test]
+fn lookup_imports() {
+  let json_map = r#"{
+    "imports": {
+      "fs": "https://deno.land/x/std@0.147.0/node/fs.ts",
+      "mod/": "https://deno.land/x/mod@1.0.0/",
+      "/~/": "../std/"
+    }
+  }"#;
+  let result = parse_from_json(
+    &Url::parse("file:///a/import-map.json").unwrap(),
+    json_map,
+  );
+  assert!(result.is_ok());
+  let ImportMapWithDiagnostics {
+    diagnostics,
+    import_map,
+  } = result.unwrap();
+  assert!(diagnostics.is_empty());
+  let referrer = Url::parse("file:///a/a.ts").unwrap();
+  let specifier_a =
+    Url::parse("https://deno.land/x/std@0.147.0/node/fs.ts").unwrap();
+  let result = import_map.lookup(&specifier_a, &referrer);
+  assert_eq!(result, Some("fs".to_string()));
+  let specifier_b = Url::parse("https://deno.land/x/mod@1.0.0/lib.ts").unwrap();
+  let result = import_map.lookup(&specifier_b, &referrer);
+  assert_eq!(result, Some("mod/lib.ts".to_string()));
+  let specifier_c = Url::parse("file:///std/testing/asserts.ts").unwrap();
+  let result = import_map.lookup(&specifier_c, &referrer);
+  assert_eq!(result, Some("/~/testing/asserts.ts".to_string()));
+}
+
+#[test]
+fn lookup_scopes() {
+  let json_map = r#"{
+    "imports": {
+      "fs": "https://deno.land/x/std@0.147.0/node/fs.ts",
+      "mod/": "https://deno.land/x/mod@1.0.0/",
+      "/~/": "../std/"
+    },
+    "scopes": {
+      "file:///a/": {
+        "node:fs": "https://deno.land/x/std@0.147.0/node/fs.ts",
+        "lib/": "https://deno.land/x/mod@1.0.0/",
+        "/std/": "../std/"
+      }
+    }
+  }"#;
+  let result = parse_from_json(
+    &Url::parse("file:///a/import-map.json").unwrap(),
+    json_map,
+  );
+  assert!(result.is_ok());
+  let ImportMapWithDiagnostics {
+    diagnostics,
+    import_map,
+  } = result.unwrap();
+  assert!(diagnostics.is_empty());
+  let referrer = Url::parse("file:///a/a.ts").unwrap();
+  let specifier_a =
+    Url::parse("https://deno.land/x/std@0.147.0/node/fs.ts").unwrap();
+  let result = import_map.lookup(&specifier_a, &referrer);
+  assert_eq!(result, Some("node:fs".to_string()));
+  let specifier_b = Url::parse("https://deno.land/x/mod@1.0.0/lib.ts").unwrap();
+  let result = import_map.lookup(&specifier_b, &referrer);
+  assert_eq!(result, Some("lib/lib.ts".to_string()));
+  let specifier_c = Url::parse("file:///std/testing/asserts.ts").unwrap();
+  let result = import_map.lookup(&specifier_c, &referrer);
+  assert_eq!(result, Some("/std/testing/asserts.ts".to_string()));
 }
 
 #[test]
