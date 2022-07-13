@@ -814,18 +814,14 @@ fn lookup_imports(
 ) -> Option<String> {
   let specifier_str = specifier.to_string();
   for (key, value) in specifier_map.inner.iter() {
-    let key = if key.starts_with("file://") {
-      key.replace("file://", "")
-    } else {
-      key.clone()
-    };
+    let key = value.raw_key.as_ref().unwrap_or(key);
     if let Some(address) = &value.maybe_address {
       let address_str = address.to_string();
       if address_str == specifier_str {
-        return Some(key);
+        return Some(key.clone());
       }
       if address_str.ends_with('/') && specifier_str.starts_with(&address_str) {
-        return Some(specifier_str.replace(&address_str, &key));
+        return Some(specifier_str.replace(&address_str, key));
       }
     }
   }
