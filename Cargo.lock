@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "import_map"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "indexmap",
  "log",
