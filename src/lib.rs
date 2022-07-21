@@ -841,6 +841,7 @@ fn lookup_imports(
   specifier: &Url,
 ) -> Option<String> {
   let specifier_str = specifier.to_string();
+  let mut matched_prefixes = vec![];
   for (key, value) in specifier_map.inner.iter() {
     let key = value.raw_key.as_ref().unwrap_or(key);
     if let Some(address) = &value.maybe_address {
@@ -849,9 +850,23 @@ fn lookup_imports(
         return Some(key.clone());
       }
       if address_str.ends_with('/') && specifier_str.starts_with(&address_str) {
-        return Some(specifier_str.replace(&address_str, key));
+        matched_prefixes.push((key.clone(), address_str));
       }
     }
+  }
+  // If the specifier matches multiple import map prefix keys, favor the one
+  // with the shorter key. Also check for conflicts; if the specifier rewritten
+  // with that import map entry also falls under some other prefix key, discard
+  // that result.
+  matched_prefixes.sort_by_key(|(k, _)| k.len());
+  for (key, address_str) in matched_prefixes {
+    let result = specifier_str.replace(&address_str, &key);
+    for (other_key, _) in specifier_map.inner.iter() {
+      if other_key != &key && result.starts_with(other_key) {
+        continue;
+      }
+    }
+    return Some(result);
   }
   None
 }
