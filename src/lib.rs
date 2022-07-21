@@ -282,7 +282,7 @@ impl ImportMap {
       .or_else(|| lookup_imports(&self.imports, specifier));
     // Make the import-map-relative key referrer-relative.
     key.and_then(|key| {
-      if key.starts_with("/") || key.starts_with("./") || key.starts_with("../")
+      if key.starts_with('/') || key.starts_with("./") || key.starts_with("../")
       {
         let mapped_specifier = self.base_url.join(&key).ok()?;
         let relative_key = match referrer.make_relative(&mapped_specifier) {
@@ -294,10 +294,10 @@ impl ImportMap {
         // is the same as the referrer because `relative_key` exists) it's okay
         // to use the key directly. We want to avoid actually using the value of
         // `relative_key` in absolute cases.
-        if key.starts_with("/") {
+        if key.starts_with('/') {
           return Some(key);
         }
-        if relative_key.starts_with("/")
+        if relative_key.starts_with('/')
           || relative_key.starts_with("./")
           || relative_key.starts_with("../")
         {
