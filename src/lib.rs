@@ -275,11 +275,39 @@ impl ImportMap {
   }
 
   /// Given a specifier and a referring specifier, determine if a value in the
-  /// import map could be used as an import specifier that resolves using the
-  /// import map.
+  /// import map could be used as an import specifier from the referrer that
+  /// resolves using the import map.
   pub fn lookup(&self, specifier: &Url, referrer: &Url) -> Option<String> {
-    lookup_scopes(&self.scopes, specifier, referrer.as_str())
-      .or_else(|| lookup_imports(&self.imports, specifier))
+    let key = lookup_scopes(&self.scopes, specifier, referrer.as_str())
+      .or_else(|| lookup_imports(&self.imports, specifier));
+    // Make the import-map-relative key referrer-relative.
+    key.and_then(|key| {
+      if key.starts_with('/') || key.starts_with("./") || key.starts_with("../")
+      {
+        let mapped_specifier = self.base_url.join(&key).ok()?;
+        let relative_key = match referrer.make_relative(&mapped_specifier) {
+          Some(k) => k,
+          None => return Some(mapped_specifier.to_string()),
+        };
+        // We want the lookup result to resemble the import map key as much as
+        // possible. If the map key is an absolute path (and we know the origin
+        // is the same as the referrer because `relative_key` exists) it's okay
+        // to use the key directly. We want to avoid actually using the value of
+        // `relative_key` in absolute cases.
+        if key.starts_with('/') {
+          return Some(key);
+        }
+        if relative_key.starts_with('/')
+          || relative_key.starts_with("./")
+          || relative_key.starts_with("../")
+        {
+          return Some(relative_key);
+        }
+        Some(format!("./{}", relative_key))
+      } else {
+        Some(key)
+      }
+    })
   }
 
   pub fn resolve(
@@ -813,6 +841,7 @@ fn lookup_imports(
   specifier: &Url,
 ) -> Option<String> {
   let specifier_str = specifier.to_string();
+  let mut matched_prefixes = vec![];
   for (key, value) in specifier_map.inner.iter() {
     let key = value.raw_key.as_ref().unwrap_or(key);
     if let Some(address) = &value.maybe_address {
@@ -821,9 +850,23 @@ fn lookup_imports(
         return Some(key.clone());
       }
       if address_str.ends_with('/') && specifier_str.starts_with(&address_str) {
-        return Some(specifier_str.replace(&address_str, key));
+        matched_prefixes.push((key.clone(), address_str));
       }
     }
+  }
+  // If the specifier matches multiple import map prefix keys, favor the one
+  // with the shorter key. Also check for conflicts; if the specifier rewritten
+  // with that import map entry also falls under some other prefix key, discard
+  // that result.
+  matched_prefixes.sort_by_key(|(k, _)| k.len());
+  'o: for (key, address_str) in matched_prefixes {
+    let result = specifier_str.replace(&address_str, &key);
+    for (other_key, _) in specifier_map.inner.iter() {
+      if other_key != &key && result.starts_with(other_key) {
+        continue 'o;
+      }
+    }
+    return Some(result);
   }
   None
 }
