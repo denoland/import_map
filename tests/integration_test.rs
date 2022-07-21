@@ -312,7 +312,8 @@ fn lookup_imports() {
     "imports": {
       "fs": "https://deno.land/x/std@0.147.0/node/fs.ts",
       "mod/": "https://deno.land/x/mod@1.0.0/",
-      "/~/": "../std/"
+      "/~/": "../std/",
+      "./foo.ts": "./bar.ts"
     }
   }"#;
   let result = parse_from_json(
@@ -325,7 +326,7 @@ fn lookup_imports() {
     import_map,
   } = result.unwrap();
   assert!(diagnostics.is_empty());
-  let referrer = Url::parse("file://C:/a/a.ts").unwrap();
+  let referrer = Url::parse("file://C:/b/c.ts").unwrap();
   let specifier_a =
     Url::parse("https://deno.land/x/std@0.147.0/node/fs.ts").unwrap();
   let result = import_map.lookup(&specifier_a, &referrer);
@@ -336,6 +337,9 @@ fn lookup_imports() {
   let specifier_c = Url::parse("file://C:/std/testing/asserts.ts").unwrap();
   let result = import_map.lookup(&specifier_c, &referrer);
   assert_eq!(result, Some("/~/testing/asserts.ts".to_string()));
+  let specifier_d = Url::parse("file://C:/a/bar.ts").unwrap();
+  let result = import_map.lookup(&specifier_d, &referrer);
+  assert_eq!(result, Some("../a/foo.ts".to_string()));
 }
 
 #[test]
