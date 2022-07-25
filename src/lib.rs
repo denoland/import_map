@@ -859,12 +859,11 @@ fn lookup_imports(
   // with that import map entry also falls under some other prefix key, discard
   // that result.
   matched_prefixes.sort_by_key(|(k, _)| k.len());
-  'o: for (key, address_str) in matched_prefixes {
+  for (key, address_str) in matched_prefixes {
     let result = specifier_str.replace(&address_str, &key);
-    for (other_key, _) in specifier_map.inner.iter() {
-      if other_key != &key && result.starts_with(other_key) {
-        continue 'o;
-      }
+    let mut other_keys = specifier_map.inner.keys();
+    if other_keys.any(|k| k != &key && result.starts_with(k)) {
+      continue;
     }
     return Some(result);
   }
