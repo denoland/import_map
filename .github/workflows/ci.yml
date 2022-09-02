@@ -43,7 +43,7 @@ jobs:
       - name: Lint
         run: |
           cargo clippy --all-targets --all-features --release -- -D clippy::all
-          deno lint --check
+          deno lint
 
       - name: Build
         run: cargo build --locked --release --all-targets --all-features
