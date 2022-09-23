@@ -312,6 +312,7 @@ fn lookup_imports() {
     "imports": {
       "fs": "https://deno.land/x/std@0.147.0/node/fs.ts",
       "mod/": "https://deno.land/x/mod@1.0.0/",
+      "query/": "https://deno.land/x/query@1.0.0/?q1",
       "/~/": "../std/"
     }
   }"#;
@@ -333,8 +334,14 @@ fn lookup_imports() {
   let specifier_b = Url::parse("https://deno.land/x/mod@1.0.0/lib.ts").unwrap();
   let result = import_map.lookup(&specifier_b, &referrer);
   assert_eq!(result, Some("mod/lib.ts".to_string()));
-  let specifier_c = Url::parse("file://C:/std/testing/asserts.ts").unwrap();
+  let specifier_c = Url::parse("https://deno.land/x/query@1.0.0/lib.ts").unwrap();
   let result = import_map.lookup(&specifier_c, &referrer);
+  assert_eq!(result, Some("query/lib.ts".to_string()));
+  let specifier_d = Url::parse("https://deno.land/x/query@1.0.0/lib.ts?q2").unwrap();
+  let result = import_map.lookup(&specifier_d, &referrer);
+  assert_eq!(result, Some("query/lib.ts".to_string()));
+  let specifier_e = Url::parse("file://C:/std/testing/asserts.ts").unwrap();
+  let result = import_map.lookup(&specifier_e, &referrer);
   assert_eq!(result, Some("/~/testing/asserts.ts".to_string()));
 }
 
@@ -419,7 +426,8 @@ fn invalid_scope() {
 fn querystring() {
   let json_map = r#"{
     "imports": {
-      "npm/": "https://esm.sh/"
+      "npm/": "https://esm.sh/",
+      "npm2/": "https://esm2.sh/?d?e"
     }
   }"#;
   let import_map =
@@ -442,6 +450,16 @@ fn querystring() {
     .resolve("npm/key/a?b?c", &Url::parse("https://deno.land").unwrap())
     .unwrap();
   assert_eq!(resolved.as_str(), "https://esm.sh/key/a?b?c");
+
+  let resolved = import_map
+    .resolve("npm2/key/a?b?c", &Url::parse("https://deno.land").unwrap())
+    .unwrap();
+  assert_eq!(resolved.as_str(), "https://esm2.sh/key/a?b?c");
+
+  let resolved = import_map
+    .resolve("npm2/key/a", &Url::parse("https://deno.land").unwrap())
+    .unwrap();
+  assert_eq!(resolved.as_str(), "https://esm2.sh/key/a?d?e");
 
   let resolved = import_map
     .resolve(

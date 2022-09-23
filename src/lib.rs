@@ -675,12 +675,16 @@ fn parse_specifier_map(
       }
     };
 
-    let address_url_string = address_url.to_string();
-    if raw.key.ends_with('/') && !address_url_string.ends_with('/') {
+    if raw.key.ends_with('/') && !address_url
+      .path_segments()
+      .and_then(|segments| segments.last())
+      .map(|seg| seg.is_empty())
+      .unwrap_or(false)
+    {
       diagnostics.push(format!(
         "Invalid target address {:?} for package specifier {:?}. \
             Package address targets must end with \"/\".",
-        address_url_string, raw.key
+        address_url.to_string(), raw.key
       ));
       let value = SpecifierMapValue::new(i, &raw, &normalized_key, None);
       normalized_map.insert(normalized_key, value);
@@ -845,10 +849,16 @@ fn lookup_imports(
   specifier_map: &SpecifierMap,
   specifier: &Url,
 ) -> Option<String> {
+  let mut specifier = specifier.clone();
+  specifier.set_fragment(None);
+  specifier.set_query(None);
   let specifier_str = specifier.to_string();
   for (key, value) in specifier_map.inner.iter() {
     let key = value.raw_key.as_ref().unwrap_or(key);
     if let Some(address) = &value.maybe_address {
+      let mut address = address.clone();
+      address.set_fragment(None);
+      address.set_query(None);
       let address_str = address.to_string();
       if address_str == specifier_str {
         return Some(key.clone());
@@ -971,9 +981,6 @@ fn resolve_imports_match(
       ))
     })?;
 
-    // Enforced by parsing.
-    assert!(resolution_result.to_string().ends_with('/'));
-
     let after_prefix = &normalized_specifier[specifier_key.len()..];
 
     let url = match append_specifier_to_base(resolution_result, after_prefix) {
@@ -988,11 +995,14 @@ fn resolve_imports_match(
       }
     };
 
-    if !url.as_str().starts_with(resolution_result.as_str()) {
-      return Err(ImportMapError::Other(format!(
-        "The specifier \"{:?}\" backtracks above its prefix \"{:?}\"",
-        normalized_specifier, specifier_key
-      )));
+    if let (Some(url_path), Some(base_path)) = (url.path_segments(), resolution_result.path_segments()) {
+      let num_base_segments = base_path.clone().count();
+      if base_path.eq(url_path.take(num_base_segments)) {
+        return Err(ImportMapError::Other(format!(
+          "The specifier \"{:?}\" backtracks above its prefix \"{:?}\"",
+          normalized_specifier, specifier_key
+        )));
+      }
     }
 
     return Ok(Some(url));
