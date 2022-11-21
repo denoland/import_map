@@ -687,6 +687,20 @@ fn parse_specifier_map(
       continue;
     }
 
+    if raw.key.ends_with('/')
+      && address_url_string.starts_with("npm:")
+      && !address_url_string.starts_with("npm:/")
+    {
+      diagnostics.push(format!(
+        "Invalid target address {:?} for package specifier {:?}. \
+            Package address targets must start with \"npm:/\" if mapping to npm packages.",
+        address_url_string, raw.key
+      ));
+      let value = SpecifierMapValue::new(i, &raw, &normalized_key, None);
+      normalized_map.insert(normalized_key, value);
+      continue;
+    }
+
     let value =
       SpecifierMapValue::new(i, &raw, &normalized_key, Some(address_url));
     normalized_map.insert(normalized_key, value);
@@ -982,7 +996,7 @@ fn resolve_imports_match(
         return Err(ImportMapError::Other(format!(
           "Failed to resolve the specifier \"{:?}\" as its after-prefix
             portion \"{:?}\" could not be URL-parsed relative to the URL prefix
-            \"{:?}\" mapped to by the prefix \"{:?}\"",
+            \"{}\" mapped to by the prefix \"{}\"",
           normalized_specifier, after_prefix, resolution_result, specifier_key
         )));
       }
@@ -1010,6 +1024,50 @@ fn resolve_imports_match(
 #[cfg(test)]
 mod test {
   use super::*;
+
+  #[test]
+  fn npm_specifiers() {
+    let mut specifiers = SpecifierMapInner::new();
+    specifiers.insert(
+      "aws-sdk/".to_string(),
+      SpecifierMapValue {
+        index: 0,
+        raw_key: None,
+        raw_value: None,
+        maybe_address: Some(Url::parse("npm:aws-sdk/").unwrap()),
+      },
+    );
+    let specifiers = SpecifierMap {
+      base_url: Url::parse("file:///").unwrap(),
+      inner: specifiers,
+    };
+
+    assert!(
+      resolve_imports_match(&specifiers, "aws-sdk/clients/S3", None).is_err()
+    );
+
+    let mut specifiers = SpecifierMapInner::new();
+    specifiers.insert(
+      "aws-sdk/".to_string(),
+      SpecifierMapValue {
+        index: 0,
+        raw_key: None,
+        raw_value: None,
+        maybe_address: Some(Url::parse("npm:/aws-sdk/").unwrap()),
+      },
+    );
+    let specifiers = SpecifierMap {
+      base_url: Url::parse("file:///").unwrap(),
+      inner: specifiers,
+    };
+
+    let resolved_specifier =
+      resolve_imports_match(&specifiers, "aws-sdk/clients/S3", None)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(resolved_specifier.as_str(), "npm:/aws-sdk/clients/S3");
+  }
 
   #[test]
   fn mapped_windows_file_specifier() {

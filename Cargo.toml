@@ -29,7 +29,7 @@ js-sys = { version = "=0.3.58", optional = true }
 log = { version = "0.4.14", optional = true }
 serde = { version = "1.0.129", features = ["derive"] }
 serde_json = { version = "1.0.66", features = ["preserve_order"] }
-url = { version = "2.2.2", features = ["serde"] }
+url = { version = "2.3.1", features = ["serde"] }
 wasm-bindgen = { version = "=0.2.81", features = ["serde-serialize"], optional = true }
 
 [dev-dependencies]

@@ -670,3 +670,20 @@ pub fn outputs_import_map_as_json_imports_and_scopes() {
     .import_map;
   assert_eq!(import_map.to_json(), json);
 }
+
+#[test]
+pub fn packages_with_npm_specifier() {
+  let json = r#"{
+  "imports": {
+    "aws-sdk": "npm:aws-sdk",
+    "aws-sdk/": "npm:aws-sdk/"
+  }
+}
+"#;
+  let diagnostics = parse_from_json(&Url::parse("file:///dir/").unwrap(), json)
+    .unwrap()
+    .diagnostics;
+  assert_eq!(diagnostics.len(), 1);
+  eprintln!("diags {:?}", diagnostics);
+  assert!(diagnostics[0].contains("Package address targets must start with \"npm:/\" if mapping to npm packages"));
+}
