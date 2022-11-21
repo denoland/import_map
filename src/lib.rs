@@ -992,12 +992,11 @@ fn resolve_imports_match(
 
     let url = match append_specifier_to_base(resolution_result, after_prefix) {
       Ok(url) => url,
-      Err(e) => {
-        eprintln!("error {:#?}", e);
+      Err(_) => {
         return Err(ImportMapError::Other(format!(
           "Failed to resolve the specifier \"{:?}\" as its after-prefix
             portion \"{:?}\" could not be URL-parsed relative to the URL prefix
-            \"{}\" mapped to by the prefix \"{:?}\"",
+            \"{}\" mapped to by the prefix \"{}\"",
           normalized_specifier, after_prefix, resolution_result, specifier_key
         )));
       }
