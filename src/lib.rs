@@ -484,6 +484,27 @@ pub fn parse_from_json(
   })
 }
 
+pub fn parse_from_value(
+  base_url: &Url,
+  json_value: Value,
+) -> Result<ImportMapWithDiagnostics, ImportMapError> {
+  let mut diagnostics = vec![];
+  let (unresolved_imports, unresolved_scopes) =
+    parse_value(json_value, &mut diagnostics)?;
+  let imports =
+    parse_specifier_map(unresolved_imports, base_url, &mut diagnostics);
+  let scopes = parse_scope_map(unresolved_scopes, base_url, &mut diagnostics)?;
+
+  Ok(ImportMapWithDiagnostics {
+    diagnostics,
+    import_map: ImportMap {
+      base_url: base_url.clone(),
+      imports,
+      scopes,
+    },
+  })
+}
+
 cfg_if! {
   if #[cfg(feature = "wasm")] {
 
@@ -518,7 +539,7 @@ fn parse_json(
   json_string: &str,
   diagnostics: &mut Vec<String>,
 ) -> Result<(UnresolvedSpecifierMap, UnresolvedScopesMap), ImportMapError> {
-  let mut v: Value = match serde_json::from_str(json_string) {
+  let v: Value = match serde_json::from_str(json_string) {
     Ok(v) => v,
     Err(err) => {
       return Err(ImportMapError::Other(format!(
@@ -527,7 +548,13 @@ fn parse_json(
       )));
     }
   };
+  parse_value(v, diagnostics)
+}
 
+fn parse_value(
+  mut v: Value,
+  diagnostics: &mut Vec<String>,
+) -> Result<(UnresolvedSpecifierMap, UnresolvedScopesMap), ImportMapError> {
   match v {
     Value::Object(_) => {}
     _ => {
