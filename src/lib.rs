@@ -467,9 +467,24 @@ pub fn parse_from_json(
   base_url: &Url,
   json_string: &str,
 ) -> Result<ImportMapWithDiagnostics, ImportMapError> {
+  parse_from_json_internal(base_url, json_string, false)
+}
+
+pub fn parse_from_json_ignore_unknown_keys(
+  base_url: &Url,
+  json_string: &str,
+) -> Result<ImportMapWithDiagnostics, ImportMapError> {
+  parse_from_json_internal(base_url, json_string, true)
+}
+
+fn parse_from_json_internal(
+  base_url: &Url,
+  json_string: &str,
+  ignore_unknown_keys: bool,
+) -> Result<ImportMapWithDiagnostics, ImportMapError> {
   let mut diagnostics = vec![];
   let (unresolved_imports, unresolved_scopes) =
-    parse_json(json_string, &mut diagnostics)?;
+    parse_json(json_string, &mut diagnostics, ignore_unknown_keys)?;
   let imports =
     parse_specifier_map(unresolved_imports, base_url, &mut diagnostics);
   let scopes = parse_scope_map(unresolved_scopes, base_url, &mut diagnostics)?;
@@ -488,9 +503,24 @@ pub fn parse_from_value(
   base_url: &Url,
   json_value: Value,
 ) -> Result<ImportMapWithDiagnostics, ImportMapError> {
+  parse_from_value_internal(base_url, json_value, false)
+}
+
+pub fn parse_from_value_ignore_unknown_keys(
+  base_url: &Url,
+  json_value: Value,
+) -> Result<ImportMapWithDiagnostics, ImportMapError> {
+  parse_from_value_internal(base_url, json_value, false)
+}
+
+fn parse_from_value_internal(
+  base_url: &Url,
+  json_value: Value,
+  ignore_unknown_keys: bool,
+) -> Result<ImportMapWithDiagnostics, ImportMapError> {
   let mut diagnostics = vec![];
   let (unresolved_imports, unresolved_scopes) =
-    parse_value(json_value, &mut diagnostics)?;
+    parse_value(json_value, &mut diagnostics, ignore_unknown_keys)?;
   let imports =
     parse_specifier_map(unresolved_imports, base_url, &mut diagnostics);
   let scopes = parse_scope_map(unresolved_scopes, base_url, &mut diagnostics)?;
@@ -538,6 +568,7 @@ cfg_if! {
 fn parse_json(
   json_string: &str,
   diagnostics: &mut Vec<String>,
+  ignore_unknown_keys: bool,
 ) -> Result<(UnresolvedSpecifierMap, UnresolvedScopesMap), ImportMapError> {
   let v: Value = match serde_json::from_str(json_string) {
     Ok(v) => v,
@@ -548,12 +579,13 @@ fn parse_json(
       )));
     }
   };
-  parse_value(v, diagnostics)
+  parse_value(v, diagnostics, ignore_unknown_keys)
 }
 
 fn parse_value(
   mut v: Value,
   diagnostics: &mut Vec<String>,
+  ignore_unknown_keys: bool,
 ) -> Result<(UnresolvedSpecifierMap, UnresolvedScopesMap), ImportMapError> {
   match v {
     Value::Object(_) => {}
@@ -594,16 +626,18 @@ fn parse_value(
     IndexMap::new()
   };
 
-  let mut keys: HashSet<String> = v
-    .as_object()
-    .unwrap()
-    .keys()
-    .map(|k| k.to_string())
-    .collect();
-  keys.remove("imports");
-  keys.remove("scopes");
-  for key in keys {
-    diagnostics.push(format!("Invalid top-level key \"{}\". Only \"imports\" and \"scopes\" can be present.", key));
+  if !ignore_unknown_keys {
+    let mut keys: HashSet<String> = v
+      .as_object()
+      .unwrap()
+      .keys()
+      .map(|k| k.to_string())
+      .collect();
+    keys.remove("imports");
+    keys.remove("scopes");
+    for key in keys {
+      diagnostics.push(format!("Invalid top-level key \"{}\". Only \"imports\" and \"scopes\" can be present.", key));
+    }
   }
 
   Ok((imports, scopes))
