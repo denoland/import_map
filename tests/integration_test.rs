@@ -351,10 +351,8 @@ fn lookup_imports_with_conflict() {
       "a/b/": "https://bar.com/"
     }
   }"#;
-  let result = parse_from_json(
-    &Url::parse("file:///import_map.json").unwrap(),
-    json_map,
-  );
+  let result =
+    parse_from_json(&Url::parse("file:///import_map.json").unwrap(), json_map);
   assert!(result.is_ok());
   let ImportMapWithDiagnostics {
     diagnostics,
