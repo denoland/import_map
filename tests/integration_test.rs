@@ -279,8 +279,8 @@ fn from_json_2() {
   assert!(result.is_ok());
   let diagnostics = result.unwrap().diagnostics;
   assert_eq!(diagnostics.len(), 2);
-  assert_eq!(diagnostics[0], "Invalid address Array([\n    String(\n        \"https://example.com/2\",\n    ),\n]) for the specifier key \"bar\". Addresses must be strings.");
-  assert_eq!(diagnostics[1], "Invalid address Null for the specifier key \"fizz\". Addresses must be strings.");
+  assert_eq!(diagnostics[0].to_string(), "Invalid address \"[\\\"https://example.com/2\\\"]\" for the specifier key \"bar\". Addresses must be strings.");
+  assert_eq!(diagnostics[1].to_string(), "Invalid address \"null\" for the specifier key \"fizz\". Addresses must be strings.");
 }
 
 #[test]
@@ -299,11 +299,14 @@ fn from_json_3() {
   let diagnostics = result.unwrap().diagnostics;
   assert_eq!(diagnostics.len(), 3);
   assert_eq!(
-    diagnostics[0],
+    diagnostics[0].to_string(),
     "Invalid address \"\" for the specifier key \"bar\"."
   );
-  assert_eq!(diagnostics[1], "Invalid target address \"https://example.com/2\" for package specifier \"npm/\". Package address targets must end with \"/\".");
-  assert_eq!(diagnostics[2], "Invalid empty string specifier.");
+  assert_eq!(diagnostics[1].to_string(), "Invalid target address \"https://example.com/2\" for package specifier \"npm/\". Package address targets must end with \"/\".");
+  assert_eq!(
+    diagnostics[2].to_string(),
+    "Invalid empty string specifier."
+  );
 }
 
 #[test]
@@ -421,7 +424,7 @@ fn invalid_top_level_key() {
   assert!(result.is_ok());
   let diagnostics = result.unwrap().diagnostics;
   assert_eq!(diagnostics.len(), 1);
-  assert_eq!(diagnostics[0], "Invalid top-level key \"baz\". Only \"imports\" and \"scopes\" can be present.");
+  assert_eq!(diagnostics[0].to_string(), "Invalid top-level key \"baz\". Only \"imports\" and \"scopes\" can be present.");
 }
 
 #[test]
@@ -441,7 +444,7 @@ fn invalid_scope() {
   assert!(result.is_ok());
   let diagnostics = result.unwrap().diagnostics;
   assert_eq!(diagnostics.len(), 1);
-  assert_eq!(diagnostics[0], "Invalid scope \"///bar\" (parsed against base URL \"https://deno.land/\").");
+  assert_eq!(diagnostics[0].to_string(), "Invalid scope \"///bar\" (parsed against base URL \"https://deno.land/\").");
 }
 
 #[test]
@@ -698,4 +701,21 @@ pub fn outputs_import_map_as_json_imports_and_scopes() {
     .unwrap()
     .import_map;
   assert_eq!(import_map.to_json(), json);
+}
+
+#[test]
+pub fn packages_with_npm_specifier() {
+  let json = r#"{
+  "imports": {
+    "aws-sdk": "npm:aws-sdk",
+    "aws-sdk/": "npm:aws-sdk/"
+  }
+}
+"#;
+  let diagnostics = parse_from_json(&Url::parse("file:///dir/").unwrap(), json)
+    .unwrap()
+    .diagnostics;
+  assert_eq!(diagnostics.len(), 1);
+  eprintln!("diags {:?}", diagnostics);
+  assert!(diagnostics[0].to_string().contains("Package address targets must start with \"npm:/\" if mapping to npm packages"));
 }

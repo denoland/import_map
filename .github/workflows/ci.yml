@@ -31,21 +31,31 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v1
 
+      - name: Install Deno
+        uses: denoland/setup-deno@v1.0.0
+
       - name: Format
         if: contains(matrix.os, 'ubuntu')
         run: |
           rustfmt --check src/lib.rs
+          deno fmt --check
 
       - name: Lint
         run: |
           cargo clippy --all-targets --all-features --release -- -D clippy::all
+          deno lint
 
       - name: Build
         run: cargo build --locked --release --all-targets --all-features
+      
+      - name: Ensure Wasm up to date
+        if: contains(matrix.os, 'ubuntu')
+        run: deno task build --check
 
       - name: Test
         run: |
           cargo test --locked --release --all-targets --all-features
+          deno task test
 
       - name: Publish
         if: |

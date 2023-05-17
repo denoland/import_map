@@ -9,6 +9,63 @@ use std::error::Error;
 use std::fmt;
 use url::Url;
 
+#[macro_use]
+extern crate cfg_if;
+
+#[derive(Debug, Clone)]
+pub enum ImportMapDiagnostic {
+  EmptySpecifier,
+  InvalidScope(String, String),
+  InvalidTargetAddress(String, String),
+  InvalidTargetAddressNpm(String, String),
+  InvalidAddress(String, String),
+  InvalidAddressNotString(String, String),
+  InvalidTopLevelKey(String),
+}
+
+impl fmt::Display for ImportMapDiagnostic {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    match self {
+      ImportMapDiagnostic::EmptySpecifier => {
+        write!(f, "Invalid empty string specifier.")
+      }
+      ImportMapDiagnostic::InvalidScope(scope, base_url) => {
+        write!(
+          f,
+          "Invalid scope \"{}\" (parsed against base URL \"{}\").",
+          scope, base_url
+        )
+      }
+      ImportMapDiagnostic::InvalidTargetAddress(address, key) => {
+        write!(
+          f,
+          "Invalid target address {:?} for package specifier {:?}. \
+        Package address targets must end with \"/\".",
+          address, key
+        )
+      }
+      ImportMapDiagnostic::InvalidTargetAddressNpm(address, key) => {
+        write!(f, "Invalid target address {:?} for package specifier {:?}. \
+        Package address targets must start with \"npm:/\" if mapping to npm packages.",
+        address, key)
+      }
+      ImportMapDiagnostic::InvalidAddress(value, key) => {
+        write!(
+          f,
+          "Invalid address {:#?} for the specifier key \"{}\".",
+          value, key
+        )
+      }
+      ImportMapDiagnostic::InvalidAddressNotString(value, key) => {
+        write!(f, "Invalid address {:#?} for the specifier key \"{}\". Addresses must be strings.", value, key)
+      }
+      ImportMapDiagnostic::InvalidTopLevelKey(key) => {
+        write!(f, "Invalid top-level key \"{}\". Only \"imports\" and \"scopes\" can be present.", key)
+      }
+    }
+  }
+}
+
 #[derive(Debug)]
 pub enum ImportMapError {
   UnmappedBareSpecifier(String, Option<String>),
@@ -174,7 +231,8 @@ impl SpecifierMap {
       key,
       value: Some(value),
     };
-    let key = normalize_specifier_key(&raw.key, &self.base_url)?;
+    let key = normalize_specifier_key(&raw.key, &self.base_url)
+      .map_err(|e| e.to_string())?;
     if let Some(import_value) = self.inner.get(&key) {
       let import_val = if let Some(value) = &import_value.maybe_address {
         value.as_str()
@@ -246,7 +304,7 @@ pub struct ScopeEntry<'a> {
 #[derive(Debug, Clone)]
 pub struct ImportMapWithDiagnostics {
   pub import_map: ImportMap,
-  pub diagnostics: Vec<String>,
+  pub diagnostics: Vec<ImportMapDiagnostic>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -375,13 +433,13 @@ impl ImportMap {
   pub fn get_or_append_scope_mut(
     &mut self,
     key: &str,
-  ) -> Result<&mut SpecifierMap, String> {
+  ) -> Result<&mut SpecifierMap, ImportMapDiagnostic> {
     let scope_prefix_url = match self.base_url.join(key) {
       Ok(url) => url.to_string(),
       _ => {
-        return Err(format!(
-          "Invalid scope \"{}\" (parsed against base URL \"{}\").",
-          key, self.base_url
+        return Err(ImportMapDiagnostic::InvalidScope(
+          key.to_string(),
+          self.base_url.to_string(),
         ));
       }
     };
@@ -509,11 +567,62 @@ pub fn parse_from_json(
   })
 }
 
+pub fn parse_from_value(
+  base_url: &Url,
+  json_value: Value,
+) -> Result<ImportMapWithDiagnostics, ImportMapError> {
+  let mut diagnostics = vec![];
+  let (unresolved_imports, unresolved_scopes) =
+    parse_value(json_value, &mut diagnostics)?;
+  let imports =
+    parse_specifier_map(unresolved_imports, base_url, &mut diagnostics);
+  let scopes = parse_scope_map(unresolved_scopes, base_url, &mut diagnostics)?;
+
+  Ok(ImportMapWithDiagnostics {
+    diagnostics,
+    import_map: ImportMap {
+      base_url: base_url.clone(),
+      imports,
+      scopes,
+    },
+  })
+}
+
+cfg_if! {
+  if #[cfg(feature = "wasm")] {
+
+    use wasm_bindgen::prelude::*;
+
+    #[wasm_bindgen]
+    pub struct JsImportMap(ImportMap);
+
+    #[wasm_bindgen]
+    impl JsImportMap {
+      #[wasm_bindgen]
+      pub fn resolve(&self, specifier: String, referrer: String) -> Result<String, JsError> {
+        let referrer = Url::parse(&referrer).map_err(|err| JsError::new(&err.to_string()))?;
+        self.0.resolve(&specifier, &referrer).map(|url| url.to_string()).map_err(|err| JsError::new(&err.to_string()))
+      }
+
+      #[wasm_bindgen(js_name = toJSON)]
+      pub fn to_json(&self) -> String {
+        self.0.to_json()
+      }
+    }
+
+    #[wasm_bindgen(js_name = parseFromJson)]
+    pub fn js_parse_from_json(base_url: String, json_string: String) -> Result<JsImportMap, JsError> {
+      let base_url = Url::parse(&base_url).map_err(|err| JsError::new(&err.to_string()))?;
+      parse_from_json(&base_url, &json_string).map(|map_with_diag| JsImportMap(map_with_diag.import_map)).map_err(|err| JsError::new(&err.to_string()))
+    }
+  }
+}
+
 fn parse_json(
   json_string: &str,
-  diagnostics: &mut Vec<String>,
+  diagnostics: &mut Vec<ImportMapDiagnostic>,
 ) -> Result<(UnresolvedSpecifierMap, UnresolvedScopesMap), ImportMapError> {
-  let mut v: Value = match serde_json::from_str(json_string) {
+  let v: Value = match serde_json::from_str(json_string) {
     Ok(v) => v,
     Err(err) => {
       return Err(ImportMapError::Other(format!(
@@ -522,7 +631,13 @@ fn parse_json(
       )));
     }
   };
+  parse_value(v, diagnostics)
+}
 
+fn parse_value(
+  mut v: Value,
+  diagnostics: &mut Vec<ImportMapDiagnostic>,
+) -> Result<(UnresolvedSpecifierMap, UnresolvedScopesMap), ImportMapError> {
   match v {
     Value::Object(_) => {}
     _ => {
@@ -571,7 +686,7 @@ fn parse_json(
   keys.remove("imports");
   keys.remove("scopes");
   for key in keys {
-    diagnostics.push(format!("Invalid top-level key \"{}\". Only \"imports\" and \"scopes\" can be present.", key));
+    diagnostics.push(ImportMapDiagnostic::InvalidTopLevelKey(key));
   }
 
   Ok((imports, scopes))
@@ -580,19 +695,25 @@ fn parse_json(
 /// Convert provided JSON map to key values
 fn parse_specifier_map_json(
   json_map: Map<String, Value>,
-  diagnostics: &mut Vec<String>,
+  diagnostics: &mut Vec<ImportMapDiagnostic>,
 ) -> UnresolvedSpecifierMap {
   let mut map: IndexMap<String, Option<String>> = IndexMap::new();
 
   // Order is preserved because of "preserve_order" feature of "serde_json".
   for (specifier_key, value) in json_map.into_iter() {
-    map.insert(specifier_key.clone(), match value {
-      Value::String(address) => Some(address),
-      _ => {
-        diagnostics.push(format!("Invalid address {:#?} for the specifier key \"{}\". Addresses must be strings.", value, specifier_key));
-        None
-      }
-    });
+    map.insert(
+      specifier_key.clone(),
+      match value {
+        Value::String(address) => Some(address),
+        _ => {
+          diagnostics.push(ImportMapDiagnostic::InvalidAddressNotString(
+            value.to_string(),
+            specifier_key,
+          ));
+          None
+        }
+      },
+    );
   }
 
   map
@@ -601,7 +722,7 @@ fn parse_specifier_map_json(
 /// Convert provided JSON map to key value strings.
 fn parse_scopes_map_json(
   scopes_map: Map<String, Value>,
-  diagnostics: &mut Vec<String>,
+  diagnostics: &mut Vec<ImportMapDiagnostic>,
 ) -> Result<UnresolvedScopesMap, ImportMapError> {
   let mut map = UnresolvedScopesMap::new();
 
@@ -634,7 +755,7 @@ fn parse_scopes_map_json(
 fn parse_specifier_map(
   imports: UnresolvedSpecifierMap,
   base_url: &Url,
-  diagnostics: &mut Vec<String>,
+  diagnostics: &mut Vec<ImportMapDiagnostic>,
 ) -> SpecifierMap {
   let mut normalized_map: SpecifierMapInner = SpecifierMapInner::new();
 
@@ -660,9 +781,9 @@ fn parse_specifier_map(
     {
       Some(url) => url,
       None => {
-        diagnostics.push(format!(
-          "Invalid address \"{}\" for the specifier key \"{}\".",
-          potential_address, raw.key
+        diagnostics.push(ImportMapDiagnostic::InvalidAddress(
+          potential_address.to_string(),
+          raw.key.to_string(),
         ));
         let value = SpecifierMapValue::new(i, &raw, &normalized_key, None);
         normalized_map.insert(normalized_key, value);
@@ -672,10 +793,22 @@ fn parse_specifier_map(
 
     let address_url_string = address_url.to_string();
     if raw.key.ends_with('/') && !address_url_string.ends_with('/') {
-      diagnostics.push(format!(
-        "Invalid target address {:?} for package specifier {:?}. \
-            Package address targets must end with \"/\".",
-        address_url_string, raw.key
+      diagnostics.push(ImportMapDiagnostic::InvalidTargetAddress(
+        address_url_string,
+        raw.key.to_string(),
+      ));
+      let value = SpecifierMapValue::new(i, &raw, &normalized_key, None);
+      normalized_map.insert(normalized_key, value);
+      continue;
+    }
+
+    if raw.key.ends_with('/')
+      && address_url_string.starts_with("npm:")
+      && !address_url_string.starts_with("npm:/")
+    {
+      diagnostics.push(ImportMapDiagnostic::InvalidTargetAddressNpm(
+        address_url_string,
+        raw.key.to_string(),
       ));
       let value = SpecifierMapValue::new(i, &raw, &normalized_key, None);
       normalized_map.insert(normalized_key, value);
@@ -709,7 +842,7 @@ fn parse_specifier_map(
 fn parse_scope_map(
   scope_map: UnresolvedScopesMap,
   base_url: &Url,
-  diagnostics: &mut Vec<String>,
+  diagnostics: &mut Vec<ImportMapDiagnostic>,
 ) -> Result<ScopesMap, ImportMapError> {
   let mut normalized_map: ScopesMap = ScopesMap::new();
 
@@ -720,9 +853,9 @@ fn parse_scope_map(
     let scope_prefix_url = match base_url.join(&raw_scope_prefix) {
       Ok(url) => url.to_string(),
       _ => {
-        diagnostics.push(format!(
-          "Invalid scope \"{}\" (parsed against base URL \"{}\").",
-          raw_scope_prefix, base_url
+        diagnostics.push(ImportMapDiagnostic::InvalidScope(
+          raw_scope_prefix,
+          base_url.to_string(),
         ));
         continue;
       }
@@ -779,10 +912,10 @@ fn try_url_like_specifier(specifier: &str, base: &Url) -> Option<Url> {
 fn normalize_specifier_key(
   specifier_key: &str,
   base_url: &Url,
-) -> Result<String, String> {
+) -> Result<String, ImportMapDiagnostic> {
   // ignore empty keys
   if specifier_key.is_empty() {
-    Err("Invalid empty string specifier.".to_string())
+    Err(ImportMapDiagnostic::EmptySpecifier)
   } else if let Some(url) = try_url_like_specifier(specifier_key, base_url) {
     Ok(url.to_string())
   } else {
@@ -991,7 +1124,7 @@ fn resolve_imports_match(
         return Err(ImportMapError::Other(format!(
           "Failed to resolve the specifier \"{:?}\" as its after-prefix
             portion \"{:?}\" could not be URL-parsed relative to the URL prefix
-            \"{:?}\" mapped to by the prefix \"{:?}\"",
+            \"{}\" mapped to by the prefix \"{}\"",
           normalized_specifier, after_prefix, resolution_result, specifier_key
         )));
       }
@@ -1019,6 +1152,50 @@ fn resolve_imports_match(
 #[cfg(test)]
 mod test {
   use super::*;
+
+  #[test]
+  fn npm_specifiers() {
+    let mut specifiers = SpecifierMapInner::new();
+    specifiers.insert(
+      "aws-sdk/".to_string(),
+      SpecifierMapValue {
+        index: 0,
+        raw_key: None,
+        raw_value: None,
+        maybe_address: Some(Url::parse("npm:aws-sdk/").unwrap()),
+      },
+    );
+    let specifiers = SpecifierMap {
+      base_url: Url::parse("file:///").unwrap(),
+      inner: specifiers,
+    };
+
+    assert!(
+      resolve_imports_match(&specifiers, "aws-sdk/clients/S3", None).is_err()
+    );
+
+    let mut specifiers = SpecifierMapInner::new();
+    specifiers.insert(
+      "aws-sdk/".to_string(),
+      SpecifierMapValue {
+        index: 0,
+        raw_key: None,
+        raw_value: None,
+        maybe_address: Some(Url::parse("npm:/aws-sdk/").unwrap()),
+      },
+    );
+    let specifiers = SpecifierMap {
+      base_url: Url::parse("file:///").unwrap(),
+      inner: specifiers,
+    };
+
+    let resolved_specifier =
+      resolve_imports_match(&specifiers, "aws-sdk/clients/S3", None)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(resolved_specifier.as_str(), "npm:/aws-sdk/clients/S3");
+  }
 
   #[test]
   fn mapped_windows_file_specifier() {

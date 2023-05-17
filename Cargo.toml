@@ -1,6 +1,6 @@
 [package]
 name = "import_map"
-version = "0.12.1"
+version = "0.15.0"
 authors = ["the Deno authors"]
 edition = "2018"
 license = "MIT"
@@ -14,16 +14,30 @@ exclude = [
 ]
 
 [features]
-logging = ["log"]
 default = ["logging"]
+logging = ["log"]
+wasm = ["js-sys", "wasm-bindgen"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "import_map"
 
 [dependencies]
+cfg-if = "1.0.0"
 indexmap = { version = "1.8.2", features = ["serde"] }
+js-sys = { version = "=0.3.58", optional = true }
 log = { version = "0.4.14", optional = true }
 serde = { version = "1.0.129", features = ["derive"] }
 serde_json = { version = "1.0.66", features = ["preserve_order"] }
-url = { version = "2.2.2", features = ["serde"] }
+url = { version = "2.3.1", features = ["serde"] }
+wasm-bindgen = { version = "=0.2.81", features = ["serde-serialize"], optional = true }
 
 [dev-dependencies]
 pretty_assertions = "1.2.1"
 walkdir = "2.3.2"
+
+[profile.release]
+codegen-units = 1
+incremental = true
+lto = true
+opt-level = "s"
