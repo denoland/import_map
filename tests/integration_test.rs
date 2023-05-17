@@ -344,6 +344,32 @@ fn lookup_imports() {
 }
 
 #[test]
+fn lookup_imports_with_conflict() {
+  let json_map = r#"{
+    "imports": {
+      "a/": "https://foo.com/",
+      "a/b/": "https://bar.com/"
+    }
+  }"#;
+  let result = parse_from_json(
+    &Url::parse("file:///import_map.json").unwrap(),
+    json_map,
+  );
+  assert!(result.is_ok());
+  let ImportMapWithDiagnostics {
+    diagnostics,
+    import_map,
+  } = result.unwrap();
+  assert!(diagnostics.is_empty());
+  let referrer = Url::parse("file:///mod.ts").unwrap();
+  let specifier = Url::parse("https://foo.com/b/c").unwrap();
+  let result = import_map.lookup(&specifier, &referrer);
+  // The specifier should be not be reverse-mapped by the first entry, because
+  // it would be re-mapped somewhere else by the second entry.
+  assert_eq!(result, None);
+}
+
+#[test]
 fn lookup_scopes() {
   let json_map = r#"{
     "imports": {
