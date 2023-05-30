@@ -32,7 +32,7 @@ jobs:
         uses: Swatinem/rust-cache@v1
 
       - name: Install Deno
-        uses: denoland/setup-deno@v1.0.0
+        uses: denoland/setup-deno@v1
 
       - name: Format
         if: contains(matrix.os, 'ubuntu')
@@ -47,7 +47,7 @@ jobs:
 
       - name: Build
         run: cargo build --locked --release --all-targets --all-features
-      
+
       - name: Ensure Wasm up to date
         if: contains(matrix.os, 'ubuntu')
         run: deno task build --check
