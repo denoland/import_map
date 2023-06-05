@@ -315,7 +315,9 @@ fn lookup_imports() {
     "imports": {
       "fs": "https://deno.land/x/std@0.147.0/node/fs.ts",
       "mod/": "https://deno.land/x/mod@1.0.0/",
-      "/~/": "../std/"
+      "/~/": "../std/",
+      "/": "./",
+      "./": "./"
     }
   }"#;
   let result = parse_from_json(
@@ -328,7 +330,7 @@ fn lookup_imports() {
     import_map,
   } = result.unwrap();
   assert!(diagnostics.is_empty());
-  let referrer = Url::parse("file://C:/a/a.ts").unwrap();
+  let referrer = Url::parse("file://C:/b/c.ts").unwrap();
   let specifier_a =
     Url::parse("https://deno.land/x/std@0.147.0/node/fs.ts").unwrap();
   let result = import_map.lookup(&specifier_a, &referrer);
@@ -339,6 +341,33 @@ fn lookup_imports() {
   let specifier_c = Url::parse("file://C:/std/testing/asserts.ts").unwrap();
   let result = import_map.lookup(&specifier_c, &referrer);
   assert_eq!(result, Some("/~/testing/asserts.ts".to_string()));
+  let specifier_d = Url::parse("file://C:/a/foo.ts").unwrap();
+  let result = import_map.lookup(&specifier_d, &referrer);
+  assert_eq!(result, Some("/foo.ts".to_string()));
+}
+
+#[test]
+fn lookup_imports_with_conflict() {
+  let json_map = r#"{
+    "imports": {
+      "a/": "https://foo.com/",
+      "a/b/": "https://bar.com/"
+    }
+  }"#;
+  let result =
+    parse_from_json(&Url::parse("file:///import_map.json").unwrap(), json_map);
+  assert!(result.is_ok());
+  let ImportMapWithDiagnostics {
+    diagnostics,
+    import_map,
+  } = result.unwrap();
+  assert!(diagnostics.is_empty());
+  let referrer = Url::parse("file:///mod.ts").unwrap();
+  let specifier = Url::parse("https://foo.com/b/c").unwrap();
+  let result = import_map.lookup(&specifier, &referrer);
+  // The specifier should be not be reverse-mapped by the first entry, because
+  // it would be re-mapped somewhere else by the second entry.
+  assert_eq!(result, None);
 }
 
 #[test]
