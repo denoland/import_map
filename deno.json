@@ -3,24 +3,10 @@
     "build": "deno run --unstable -A https://deno.land/x/wasmbuild@0.8.5/main.ts --no-default-features --features wasm",
     "test": "deno test test.ts --allow-read=./lib"
   },
-  "fmt": {
-    "files": {
-      "exclude": [
-        "lib",
-        "target",
-        "temp",
-        "wpt"
-      ]
-    }
-  },
-  "lint": {
-    "files": {
-      "exclude": [
-        "lib",
-        "target",
-        "temp",
-        "wpt"
-      ]
-    }
-  }
+  "exclude": [
+    "lib",
+    "target",
+    "temp",
+    "wpt"
+  ]
 }
