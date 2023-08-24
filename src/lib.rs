@@ -9,6 +9,8 @@ use std::error::Error;
 use std::fmt;
 use url::Url;
 
+pub mod ext;
+
 #[macro_use]
 extern crate cfg_if;
 
