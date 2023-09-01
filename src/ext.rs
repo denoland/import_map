@@ -76,3 +76,60 @@ pub fn create_synthetic_import_map(
     None
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use pretty_assertions::assert_eq;
+
+  #[test]
+  fn test_synthetic_import_map() {
+    let base_import_map = ImportMapConfig {
+      base_url: Url::parse("file:///import_map.json").unwrap(),
+      scope_prefix: "".to_string(),
+      import_map_value: json!({
+        "imports": {
+          "@std/assert/": "deno:/@std/assert/",
+          "express": "npm:express@4"
+        },
+        "scopes": {}
+      }),
+    };
+    let children = vec![ImportMapConfig {
+      base_url: Url::parse("file:///foo/deno.json").unwrap(),
+      scope_prefix: "foo".to_string(),
+      import_map_value: json!({
+        "imports": {
+          "moment": "npm:moment@5",
+        },
+        "scopes": {},
+      }),
+    },ImportMapConfig {
+      base_url: Url::parse("file:///bar/deno.json").unwrap(),
+      scope_prefix: "bar".to_string(),
+      import_map_value: json!({
+        "imports": {
+          "express": "npm:express@4",
+        },
+        "scopes": {},
+      }),
+    }];
+    let (url, value) =
+      create_synthetic_import_map(base_import_map, children).unwrap();
+    assert_eq!(url.as_str(), "file:///import_map.json");
+    assert_eq!(value, json!({
+      "imports": {
+        "@std/assert/": "deno:/@std/assert/",
+        "express": "npm:express@4"
+      },
+      "scopes": {
+        "./foo/": {
+          "moment": "npm:moment@5"
+        },
+        "./bar/": {
+          "express": "npm:express@4"
+        },
+      },
+    }));
+  }
+}
