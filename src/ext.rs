@@ -95,41 +95,47 @@ mod tests {
         "scopes": {}
       }),
     };
-    let children = vec![ImportMapConfig {
-      base_url: Url::parse("file:///foo/deno.json").unwrap(),
-      scope_prefix: "foo".to_string(),
-      import_map_value: json!({
-        "imports": {
-          "moment": "npm:moment@5",
-        },
-        "scopes": {},
-      }),
-    },ImportMapConfig {
-      base_url: Url::parse("file:///bar/deno.json").unwrap(),
-      scope_prefix: "bar".to_string(),
-      import_map_value: json!({
-        "imports": {
-          "express": "npm:express@4",
-        },
-        "scopes": {},
-      }),
-    }];
+    let children = vec![
+      ImportMapConfig {
+        base_url: Url::parse("file:///foo/deno.json").unwrap(),
+        scope_prefix: "foo".to_string(),
+        import_map_value: json!({
+          "imports": {
+            "moment": "npm:moment@5",
+          },
+          "scopes": {},
+        }),
+      },
+      ImportMapConfig {
+        base_url: Url::parse("file:///bar/deno.json").unwrap(),
+        scope_prefix: "bar".to_string(),
+        import_map_value: json!({
+          "imports": {
+            "express": "npm:express@4",
+          },
+          "scopes": {},
+        }),
+      },
+    ];
     let (url, value) =
       create_synthetic_import_map(base_import_map, children).unwrap();
     assert_eq!(url.as_str(), "file:///import_map.json");
-    assert_eq!(value, json!({
-      "imports": {
-        "@std/assert/": "deno:/@std/assert/",
-        "express": "npm:express@4"
-      },
-      "scopes": {
-        "./foo/": {
-          "moment": "npm:moment@5"
-        },
-        "./bar/": {
+    assert_eq!(
+      value,
+      json!({
+        "imports": {
+          "@std/assert/": "deno:/@std/assert/",
           "express": "npm:express@4"
         },
-      },
-    }));
+        "scopes": {
+          "./foo/": {
+            "moment": "npm:moment@5"
+          },
+          "./bar/": {
+            "express": "npm:express@4"
+          },
+        },
+      })
+    );
   }
 }
