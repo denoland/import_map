@@ -1,8 +1,11 @@
 // Copyright 2021-2022 the Deno authors. All rights reserved. MIT license.
 
 use import_map::parse_from_json;
+use import_map::parse_from_value_with_options;
+use import_map::ImportMapOptions;
 use import_map::ImportMapWithDiagnostics;
 use pretty_assertions::assert_eq;
+use serde_json::json;
 use serde_json::Value;
 use std::path::Path;
 use std::path::PathBuf;
@@ -675,18 +678,39 @@ pub fn outputs_import_map_as_json_imports_and_scopes() {
 }
 
 #[test]
-pub fn packages_with_npm_specifier() {
-  let json = r#"{
-  "imports": {
-    "aws-sdk": "npm:aws-sdk",
-    "aws-sdk/": "npm:aws-sdk/"
-  }
-}
-"#;
-  let diagnostics = parse_from_json(&Url::parse("file:///dir/").unwrap(), json)
-    .unwrap()
-    .diagnostics;
-  assert_eq!(diagnostics.len(), 1);
-  eprintln!("diags {:?}", diagnostics);
-  assert!(diagnostics[0].to_string().contains("Package address targets must start with \"npm:/\" if mapping to npm packages"));
+fn parse_with_address_hook() {
+  let result = parse_from_value_with_options(
+    &Url::parse("file:///").unwrap(),
+    json!({
+      "imports": {
+        "preact": "npm:preact",
+        "preact/": "npm:preact/",
+      }
+    }),
+    ImportMapOptions {
+      address_hook: Some(Box::new(|address, _, _| {
+        if address.ends_with('/')
+          && address.starts_with("npm:")
+          && !address.starts_with("npm:/")
+        {
+          return format!("npm:/{}", &address[4..]);
+        }
+        address.to_string()
+      })),
+    },
+  )
+  .unwrap();
+  assert_eq!(result.diagnostics, vec![]);
+  let referrer = Url::parse("file:///mod.ts").unwrap();
+  assert_eq!(
+    result.import_map.resolve("preact", &referrer).unwrap(),
+    Url::parse("npm:preact").unwrap()
+  );
+  assert_eq!(
+    result
+      .import_map
+      .resolve("preact/hooks", &referrer)
+      .unwrap(),
+    Url::parse("npm:/preact/hooks").unwrap()
+  );
 }
