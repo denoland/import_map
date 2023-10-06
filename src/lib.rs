@@ -7,17 +7,17 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
+use std::fmt::Debug;
 use url::Url;
 
 #[macro_use]
 extern crate cfg_if;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportMapDiagnostic {
   EmptySpecifier,
   InvalidScope(String, String),
   InvalidTargetAddress(String, String),
-  InvalidTargetAddressNpm(String, String),
   InvalidAddress(String, String),
   InvalidAddressNotString(String, String),
   InvalidTopLevelKey(String),
@@ -43,11 +43,6 @@ impl fmt::Display for ImportMapDiagnostic {
         Package address targets must end with \"/\".",
           address, key
         )
-      }
-      ImportMapDiagnostic::InvalidTargetAddressNpm(address, key) => {
-        write!(f, "Invalid target address {:?} for package specifier {:?}. \
-        Package address targets must start with \"npm:/\" if mapping to npm packages.",
-        address, key)
       }
       ImportMapDiagnostic::InvalidAddress(value, key) => {
         write!(
@@ -307,6 +302,21 @@ pub struct ImportMapWithDiagnostics {
   pub diagnostics: Vec<ImportMapDiagnostic>,
 }
 
+#[derive(Default)]
+pub struct ImportMapOptions {
+  /// `(parsed_address, key, maybe_scope) -> new_address`
+  #[allow(clippy::type_complexity)]
+  pub address_hook: Option<Box<dyn (Fn(&str, &str, Option<&str>) -> String)>>,
+}
+
+impl Debug for ImportMapOptions {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("ImportMapOptions")
+      .field("address_hook", &self.address_hook.as_ref().map(|_| ()))
+      .finish()
+  }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportMap {
   #[serde(skip)]
@@ -522,9 +532,17 @@ pub fn parse_from_json(
   base_url: &Url,
   json_string: &str,
 ) -> Result<ImportMapWithDiagnostics, ImportMapError> {
+  parse_from_json_with_options(base_url, json_string, Default::default())
+}
+
+pub fn parse_from_json_with_options(
+  base_url: &Url,
+  json_string: &str,
+  options: ImportMapOptions,
+) -> Result<ImportMapWithDiagnostics, ImportMapError> {
   let mut diagnostics = vec![];
   let (unresolved_imports, unresolved_scopes) =
-    parse_json(json_string, &mut diagnostics)?;
+    parse_json(json_string, &options, &mut diagnostics)?;
   let imports =
     parse_specifier_map(unresolved_imports, base_url, &mut diagnostics);
   let scopes = parse_scope_map(unresolved_scopes, base_url, &mut diagnostics)?;
@@ -543,9 +561,17 @@ pub fn parse_from_value(
   base_url: &Url,
   json_value: Value,
 ) -> Result<ImportMapWithDiagnostics, ImportMapError> {
+  parse_from_value_with_options(base_url, json_value, Default::default())
+}
+
+pub fn parse_from_value_with_options(
+  base_url: &Url,
+  json_value: Value,
+  options: ImportMapOptions,
+) -> Result<ImportMapWithDiagnostics, ImportMapError> {
   let mut diagnostics = vec![];
   let (unresolved_imports, unresolved_scopes) =
-    parse_value(json_value, &mut diagnostics)?;
+    parse_value(json_value, &options, &mut diagnostics)?;
   let imports =
     parse_specifier_map(unresolved_imports, base_url, &mut diagnostics);
   let scopes = parse_scope_map(unresolved_scopes, base_url, &mut diagnostics)?;
@@ -592,6 +618,7 @@ cfg_if! {
 
 fn parse_json(
   json_string: &str,
+  options: &ImportMapOptions,
   diagnostics: &mut Vec<ImportMapDiagnostic>,
 ) -> Result<(UnresolvedSpecifierMap, UnresolvedScopesMap), ImportMapError> {
   let v: Value = match serde_json::from_str(json_string) {
@@ -603,11 +630,12 @@ fn parse_json(
       )));
     }
   };
-  parse_value(v, diagnostics)
+  parse_value(v, options, diagnostics)
 }
 
 fn parse_value(
   mut v: Value,
+  options: &ImportMapOptions,
   diagnostics: &mut Vec<ImportMapDiagnostic>,
 ) -> Result<(UnresolvedSpecifierMap, UnresolvedScopesMap), ImportMapError> {
   match v {
@@ -622,7 +650,7 @@ fn parse_value(
   let imports = if v.get("imports").is_some() {
     match v["imports"].take() {
       Value::Object(imports_map) => {
-        parse_specifier_map_json(imports_map, diagnostics)
+        parse_specifier_map_json(imports_map, None, options, diagnostics)
       }
       _ => {
         return Err(ImportMapError::Other(
@@ -637,7 +665,7 @@ fn parse_value(
   let scopes = if v.get("scopes").is_some() {
     match v["scopes"].take() {
       Value::Object(scopes_map) => {
-        parse_scopes_map_json(scopes_map, diagnostics)?
+        parse_scopes_map_json(scopes_map, options, diagnostics)?
       }
       _ => {
         return Err(ImportMapError::Other(
@@ -667,6 +695,8 @@ fn parse_value(
 /// Convert provided JSON map to key values
 fn parse_specifier_map_json(
   json_map: Map<String, Value>,
+  scope: Option<&str>,
+  options: &ImportMapOptions,
   diagnostics: &mut Vec<ImportMapDiagnostic>,
 ) -> UnresolvedSpecifierMap {
   let mut map: IndexMap<String, Option<String>> = IndexMap::new();
@@ -676,7 +706,12 @@ fn parse_specifier_map_json(
     map.insert(
       specifier_key.clone(),
       match value {
-        Value::String(address) => Some(address),
+        Value::String(mut address) => {
+          if let Some(address_hook) = &options.address_hook {
+            address = address_hook(&address, &specifier_key, scope);
+          }
+          Some(address)
+        }
         _ => {
           diagnostics.push(ImportMapDiagnostic::InvalidAddressNotString(
             value.to_string(),
@@ -694,6 +729,7 @@ fn parse_specifier_map_json(
 /// Convert provided JSON map to key value strings.
 fn parse_scopes_map_json(
   scopes_map: Map<String, Value>,
+  options: &ImportMapOptions,
   diagnostics: &mut Vec<ImportMapDiagnostic>,
 ) -> Result<UnresolvedScopesMap, ImportMapError> {
   let mut map = UnresolvedScopesMap::new();
@@ -710,8 +746,12 @@ fn parse_scopes_map_json(
       }
     };
 
-    let specifier_map =
-      parse_specifier_map_json(potential_specifier_map, diagnostics);
+    let specifier_map = parse_specifier_map_json(
+      potential_specifier_map,
+      Some(&scope_prefix),
+      options,
+      diagnostics,
+    );
 
     map.insert(scope_prefix.to_string(), specifier_map);
   }
@@ -766,19 +806,6 @@ fn parse_specifier_map(
     let address_url_string = address_url.to_string();
     if raw.key.ends_with('/') && !address_url_string.ends_with('/') {
       diagnostics.push(ImportMapDiagnostic::InvalidTargetAddress(
-        address_url_string,
-        raw.key.to_string(),
-      ));
-      let value = SpecifierMapValue::new(i, &raw, &normalized_key, None);
-      normalized_map.insert(normalized_key, value);
-      continue;
-    }
-
-    if raw.key.ends_with('/')
-      && address_url_string.starts_with("npm:")
-      && !address_url_string.starts_with("npm:/")
-    {
-      diagnostics.push(ImportMapDiagnostic::InvalidTargetAddressNpm(
         address_url_string,
         raw.key.to_string(),
       ));
