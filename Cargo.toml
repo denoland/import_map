@@ -9,9 +9,7 @@ repository = "https://github.com/denoland/import_map"
 description = "An implementation of WICG Import Maps specification"
 
 # Don't include WPT test suite in uploaded crate
-exclude = [
-  "wpt/"
-]
+exclude = ["wpt/"]
 
 [features]
 default = ["logging"]
@@ -25,12 +23,14 @@ name = "import_map"
 [dependencies]
 cfg-if = "1.0.0"
 indexmap = { version = "1.8.2", features = ["serde"] }
-js-sys = { version = "=0.3.58", optional = true }
+js-sys = { version = "=0.3.64", optional = true }
 log = { version = "0.4.14", optional = true }
 serde = { version = "1.0.129", features = ["derive"] }
 serde_json = { version = "1.0.66", features = ["preserve_order"] }
 url = { version = "2.3.1", features = ["serde"] }
-wasm-bindgen = { version = "=0.2.81", features = ["serde-serialize"], optional = true }
+wasm-bindgen = { version = "=0.2.87", features = [
+	"serde-serialize",
+], optional = true }
 
 [dev-dependencies]
 pretty_assertions = "1.2.1"

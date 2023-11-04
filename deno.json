@@ -1,12 +1,7 @@
 {
   "tasks": {
-    "build": "deno run --unstable -A https://deno.land/x/wasmbuild@0.8.5/main.ts --no-default-features --features wasm",
+    "build": "deno run --unstable -A https://deno.land/x/wasmbuild@0.15.1/main.ts --no-default-features --features wasm",
     "test": "deno test test.ts --allow-read=./lib"
   },
-  "exclude": [
-    "lib",
-    "target",
-    "temp",
-    "wpt"
-  ]
+  "exclude": ["lib", "target", "temp", "wpt"]
 }
