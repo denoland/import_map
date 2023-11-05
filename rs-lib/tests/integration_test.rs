@@ -1,4 +1,4 @@
-// Copyright 2021-2022 the Deno authors. All rights reserved. MIT license.
+// Copyright 2021-2023 the Deno authors. All rights reserved. MIT license.
 
 use import_map::parse_from_json;
 use import_map::parse_from_value_with_options;

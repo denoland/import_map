@@ -72,17 +72,24 @@ dependencies = [
 
 [[package]]
 name = "import_map"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
- "cfg-if",
  "indexmap",
- "js-sys",
  "log",
  "pretty_assertions",
  "serde",
  "serde_json",
  "url",
  "walkdir",
+]
+
+[[package]]
+name = "import_map_wasm"
+version = "0.16.0"
+dependencies = [
+ "import_map",
+ "js-sys",
+ "url",
  "wasm-bindgen",
 ]
 
