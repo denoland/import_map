@@ -4,7 +4,7 @@ import {
   assertEquals,
   assertThrows,
 } from "https://deno.land/std@0.205.0/assert/mod.ts";
-import { parseFromJson } from "./mod.ts";
+import { parseFromJson } from "../js/mod.ts";
 
 Deno.test({
   name: "parseFromJson() - object import map",
