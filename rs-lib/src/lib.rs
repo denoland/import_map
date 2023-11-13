@@ -12,9 +12,6 @@ use url::Url;
 
 pub mod ext;
 
-#[macro_use]
-extern crate cfg_if;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportMapDiagnostic {
   EmptySpecifier,
