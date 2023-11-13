@@ -1,4 +1,4 @@
-// Copyright 2021-2022 the Deno authors. All rights reserved. MIT license.
+// Copyright 2021-2023 the Deno authors. All rights reserved. MIT license.
 
 /**
  * Provides a [spec compliant](https://wicg.github.io/import-maps/)
@@ -7,7 +7,7 @@
  *
  * @module
  */
-import { instantiate, JsImportMap } from "./lib/import_map.generated.js";
+import { instantiate, JsImportMap } from "./import_map.generated.js";
 
 let wasm: Awaited<ReturnType<typeof instantiate>> | undefined;
 

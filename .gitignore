@@ -1,3 +1,10 @@
+/target
+/rs-lib/target
+/wasm/target
+/js/LICENSE
+/js/import_map_bg.wasm
+/js/import_map.generated.js
+
 *.orig
 *.pyc
 *.swp
@@ -5,15 +12,6 @@
 /.cargo_home/
 /.idea/
 /.vscode/
-/target/
 
-# Files that help ensure VSCode can work but we don't want checked into the
-# repo
-/node_modules
-/tsconfig.json
-
-# MacOS generated files
 .DS_Store
 .DS_Store?
-
-Cargo.lock
