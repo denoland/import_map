@@ -1,0 +1,19 @@
+[package]
+name = "import_map_wasm"
+version = "0.16.0"
+edition = "2021"
+description = "An implementation of WICG Import Maps specification"
+homepage = "https://deno.land/"
+repository = "https://github.com/denoland/import_map"
+authors = ["the Deno authors"]
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+name = "import_map"
+
+[dependencies]
+import_map = { path = "../rs-lib" }
+js-sys = "=0.3.64"
+url = "2.3.1"
+wasm-bindgen = { version = "=0.2.87", features = ["serde-serialize"] }

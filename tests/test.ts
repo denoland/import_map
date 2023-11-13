@@ -1,10 +1,10 @@
-// Copyright 2021-2022 the Deno authors. All rights reserved. MIT license.
+// Copyright 2021-2023 the Deno authors. All rights reserved. MIT license.
 
 import {
   assertEquals,
   assertThrows,
-} from "https://deno.land/std@0.154.0/testing/asserts.ts";
-import { parseFromJson } from "./mod.ts";
+} from "https://deno.land/std@0.205.0/assert/mod.ts";
+import { parseFromJson } from "../js/mod.ts";
 
 Deno.test({
   name: "parseFromJson() - object import map",
