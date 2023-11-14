@@ -138,4 +138,65 @@ mod tests {
       })
     );
   }
+
+  #[test]
+  fn test_synthetic_import_map2() {
+    let base_import_map = ImportMapConfig {
+      base_url: Url::parse("file:///import_map.json").unwrap(),
+      scope_prefix: "".to_string(),
+      import_map_value: json!({
+        "imports": {
+          "@std/assert/": "deno:/@std/assert/",
+          "express": "npm:express@4"
+        },
+        "scopes": {}
+      }),
+    };
+    let children = vec![
+      ImportMapConfig {
+        base_url: Url::parse("file:///foo/deno.json").unwrap(),
+        scope_prefix: "foo".to_string(),
+        import_map_value: json!({
+          "imports": {
+            "~": "./",
+            "foo/": "./bar/"
+          },
+          "scopes": {},
+        }),
+      },
+      ImportMapConfig {
+        base_url: Url::parse("file:///bar/deno.json").unwrap(),
+        scope_prefix: "bar".to_string(),
+        import_map_value: json!({
+          "imports": {
+            "@": "./",
+            "secret_mod/": "./some_mod/"
+          },
+          "scopes": {},
+        }),
+      },
+    ];
+    let (url, value) =
+      create_synthetic_import_map(base_import_map, children).unwrap();
+    assert_eq!(url.as_str(), "file:///import_map.json");
+    assert_eq!(
+      value,
+      json!({
+        "imports": {
+          "@std/assert/": "deno:/@std/assert/",
+          "express": "npm:express@4"
+        },
+        "scopes": {
+          "./foo/": {
+            "~/": "./foo/",
+            "foo/": "./foo/bar/"
+          },
+          "./bar/": {
+            "@/": "./bar/",
+            "secret_mod/": "./bar/some_mod/"
+          },
+        },
+      })
+    );
+  }
 }
