@@ -1,13 +1,20 @@
 // Copyright 2021-2022 the Deno authors. All rights reserved. MIT license.
 
+use std::collections::HashMap;
+
 use serde_json::json;
 use serde_json::Value;
 use url::Url;
 
 pub struct ImportMapConfig {
   pub base_url: Url,
-  pub scope_prefix: String,
   pub import_map_value: Value,
+}
+
+fn pop_last_segment(url: &Url) -> Url {
+  let mut path = url.to_file_path().unwrap();
+  path.pop();
+  Url::from_directory_path(path).unwrap()
 }
 
 pub fn create_synthetic_import_map(
@@ -21,29 +28,59 @@ pub fn create_synthetic_import_map(
   let synth_import_map_scopes_obj =
     synth_import_map_scopes.as_object_mut().unwrap();
 
+  let base_import_map_dir = pop_last_segment(&base_import_map.base_url);
+
   for child_config in children_import_maps.iter() {
     let mut member_scope = json!({});
+
+    let member_dir = pop_last_segment(&child_config.base_url);
+    let relative = base_import_map_dir.make_relative(&member_dir).unwrap();
+    let member_prefix =
+      format!("./{}/", relative.strip_suffix('/').unwrap_or(&relative));
 
     if let Some(imports) = child_config.import_map_value.get("imports") {
       let member_scope_obj = member_scope.as_object_mut().unwrap();
       for (key, value) in imports.as_object().unwrap() {
-        member_scope_obj.insert(key.to_string(), value.to_owned());
+        let Some(value_str) = value.as_str() else {
+          continue;
+        };
+        let value_url = member_dir.join(value_str).unwrap();
+        let value_relative = match base_import_map_dir.make_relative(&value_url)
+        {
+          Some(v) => format!("./{}", v),
+          None => value_str.to_string(),
+        };
+        member_scope_obj.insert(key.to_string(), Value::String(value_relative));
       }
     }
-    // TODO(bartlomieju): this need to resolve values in member_scope based
-    // on the "base URL" of the member import map filepath
-    synth_import_map_scopes_obj
-      .insert(format!("./{}/", child_config.scope_prefix), member_scope);
+    synth_import_map_scopes_obj.insert(member_prefix.to_string(), member_scope);
 
     if let Some(scopes) = child_config.import_map_value.get("scopes") {
-      for (key, value) in scopes.as_object().unwrap() {
+      for (scope_key, scope_value) in scopes.as_object().unwrap() {
         // Keys for scopes need to be processed - they might look like
         // "/foo/" and coming from "bar" workspace member. So we need to
         // prepend the member name to the scope.
-        let new_key = format!("./{}{}", child_config.scope_prefix, key);
-        // TODO(bartlomieju): this need to resolve value based on the "base URL"
-        // of the member import map filepath
-        synth_import_map_scopes_obj.insert(new_key, value.to_owned());
+        let scope_key_dir = member_dir.join(scope_key).unwrap();
+        let relative =
+          base_import_map_dir.make_relative(&scope_key_dir).unwrap();
+        let new_key =
+          format!("./{}/", relative.strip_suffix('/').unwrap_or(&relative));
+
+        let mut new_scope: HashMap<String, String> = HashMap::default();
+        for (key, value) in scope_value.as_object().unwrap() {
+          let Some(value_str) = value.as_str() else {
+            continue;
+          };
+          let value_url = member_dir.join(value_str).unwrap();
+          let value_relative =
+            match base_import_map_dir.make_relative(&value_url) {
+              Some(v) => format!("./{}", v),
+              None => value_str.to_string(),
+            };
+          new_scope.insert(key.to_string(), value_relative);
+        }
+        synth_import_map_scopes_obj
+          .insert(new_key, serde_json::to_value(new_scope).unwrap());
       }
     }
   }
@@ -86,7 +123,6 @@ mod tests {
   fn test_synthetic_import_map() {
     let base_import_map = ImportMapConfig {
       base_url: Url::parse("file:///import_map.json").unwrap(),
-      scope_prefix: "".to_string(),
       import_map_value: json!({
         "imports": {
           "@std/assert/": "deno:/@std/assert/",
@@ -98,7 +134,6 @@ mod tests {
     let children = vec![
       ImportMapConfig {
         base_url: Url::parse("file:///foo/deno.json").unwrap(),
-        scope_prefix: "foo".to_string(),
         import_map_value: json!({
           "imports": {
             "moment": "npm:moment@5",
@@ -108,7 +143,6 @@ mod tests {
       },
       ImportMapConfig {
         base_url: Url::parse("file:///bar/deno.json").unwrap(),
-        scope_prefix: "bar".to_string(),
         import_map_value: json!({
           "imports": {
             "express": "npm:express@4",
@@ -143,7 +177,6 @@ mod tests {
   fn test_synthetic_import_map2() {
     let base_import_map = ImportMapConfig {
       base_url: Url::parse("file:///import_map.json").unwrap(),
-      scope_prefix: "".to_string(),
       import_map_value: json!({
         "imports": {
           "@std/assert/": "deno:/@std/assert/",
@@ -155,24 +188,30 @@ mod tests {
     let children = vec![
       ImportMapConfig {
         base_url: Url::parse("file:///foo/deno.json").unwrap(),
-        scope_prefix: "foo".to_string(),
         import_map_value: json!({
           "imports": {
-            "~": "./",
+            "~/": "./",
             "foo/": "./bar/"
           },
-          "scopes": {},
+          "scopes": {
+            "./fizz/": {
+              "express": "npm:express@5",
+            }
+          },
         }),
       },
       ImportMapConfig {
         base_url: Url::parse("file:///bar/deno.json").unwrap(),
-        scope_prefix: "bar".to_string(),
         import_map_value: json!({
           "imports": {
-            "@": "./",
+            "@/": "./",
             "secret_mod/": "./some_mod/"
           },
-          "scopes": {},
+          "scopes": {
+            "./fizz/": {
+              "foo/": "./buzz/",
+            }
+          },
         }),
       },
     ];
@@ -191,10 +230,16 @@ mod tests {
             "~/": "./foo/",
             "foo/": "./foo/bar/"
           },
+          "./foo/fizz/": {
+            "express": "npm:express@5",
+          },
           "./bar/": {
             "@/": "./bar/",
             "secret_mod/": "./bar/some_mod/"
           },
+          "./bar/fizz/": {
+            "foo/": "./bar/buzz/"
+          }
         },
       })
     );
