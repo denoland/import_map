@@ -1,7 +1,5 @@
 // Copyright 2021-2022 the Deno authors. All rights reserved. MIT license.
 
-use std::collections::HashMap;
-
 use serde_json::json;
 use serde_json::Value;
 use url::Url;
@@ -21,18 +19,13 @@ pub fn create_synthetic_import_map(
   base_import_map: ImportMapConfig,
   children_import_maps: Vec<ImportMapConfig>,
 ) -> Option<(Url, Value)> {
-  let mut synth_import_map_imports = json!({});
-  let mut synth_import_map_scopes = json!({});
-  let synth_import_map_imports_obj =
-    synth_import_map_imports.as_object_mut().unwrap();
-  let synth_import_map_scopes_obj =
-    synth_import_map_scopes.as_object_mut().unwrap();
+  let mut synth_import_map_imports = serde_json::Map::new();
+  let mut synth_import_map_scopes = serde_json::Map::new();
 
   let base_import_map_dir = pop_last_segment(&base_import_map.base_url);
 
   for child_config in children_import_maps.iter() {
-    let mut member_scope = json!({});
-    let member_scope_obj = member_scope.as_object_mut().unwrap();
+    let mut member_scope = serde_json::Map::new();
 
     let member_dir = pop_last_segment(&child_config.base_url);
     let relative_to_base_dir =
@@ -57,11 +50,12 @@ pub fn create_synthetic_import_map(
             Some(v) => format!("./{}", v),
             None => value_str.to_string(),
           };
-        member_scope_obj
+        member_scope
           .insert(key.to_string(), Value::String(value_relative_to_base_dir));
       }
     }
-    synth_import_map_scopes_obj.insert(member_prefix.to_string(), member_scope);
+    synth_import_map_scopes
+      .insert(member_prefix.to_string(), Value::Object(member_scope));
 
     if let Some(scopes) = child_config.import_map_value.get("scopes") {
       for (scope_name, scope_obj) in scopes.as_object().unwrap() {
@@ -78,7 +72,7 @@ pub fn create_synthetic_import_map(
             .unwrap_or(&relative_to_base_dir)
         );
 
-        let mut new_scope: HashMap<String, String> = HashMap::default();
+        let mut new_scope = serde_json::Map::new();
         for (key, value) in scope_obj.as_object().unwrap() {
           let Some(value_str) = value.as_str() else {
             continue;
@@ -91,10 +85,10 @@ pub fn create_synthetic_import_map(
               Some(v) => format!("./{}", v),
               None => value_str.to_string(),
             };
-          new_scope.insert(key.to_string(), value_relative_to_base_dir);
+          new_scope
+            .insert(key.to_string(), Value::String(value_relative_to_base_dir));
         }
-        synth_import_map_scopes_obj
-          .insert(new_key, serde_json::to_value(new_scope).unwrap());
+        synth_import_map_scopes.insert(new_key, Value::Object(new_scope));
       }
     }
   }
@@ -102,23 +96,23 @@ pub fn create_synthetic_import_map(
   if let Some(base_imports) = base_import_map.import_map_value.get("imports") {
     let base_imports_obj = base_imports.as_object().unwrap();
     for (key, value) in base_imports_obj.iter() {
-      synth_import_map_imports_obj.insert(key.to_owned(), value.to_owned());
+      synth_import_map_imports.insert(key.to_owned(), value.to_owned());
     }
   }
   if let Some(base_scopes) = base_import_map.import_map_value.get("scopes") {
     let base_scopes_obj = base_scopes.as_object().unwrap();
     for (key, value) in base_scopes_obj.iter() {
-      synth_import_map_scopes_obj.insert(key.to_owned(), value.to_owned());
+      synth_import_map_scopes.insert(key.to_owned(), value.to_owned());
     }
   }
 
   let mut import_map = json!({});
 
-  if !synth_import_map_imports_obj.is_empty() {
-    import_map["imports"] = synth_import_map_imports;
+  if !synth_import_map_imports.is_empty() {
+    import_map["imports"] = Value::Object(synth_import_map_imports);
   }
-  if !synth_import_map_scopes_obj.is_empty() {
-    import_map["scopes"] = synth_import_map_scopes;
+  if !synth_import_map_scopes.is_empty() {
+    import_map["scopes"] = Value::Object(synth_import_map_scopes);
   }
 
   if !import_map.as_object().unwrap().is_empty() {
