@@ -32,6 +32,7 @@ pub fn create_synthetic_import_map(
 
   for child_config in children_import_maps.iter() {
     let mut member_scope = json!({});
+    let member_scope_obj = member_scope.as_object_mut().unwrap();
 
     let member_dir = pop_last_segment(&child_config.base_url);
     let relative = base_import_map_dir.make_relative(&member_dir).unwrap();
@@ -39,12 +40,13 @@ pub fn create_synthetic_import_map(
       format!("./{}/", relative.strip_suffix('/').unwrap_or(&relative));
 
     if let Some(imports) = child_config.import_map_value.get("imports") {
-      let member_scope_obj = member_scope.as_object_mut().unwrap();
       for (key, value) in imports.as_object().unwrap() {
         let Some(value_str) = value.as_str() else {
           continue;
         };
         let value_url = member_dir.join(value_str).unwrap();
+        // `make_relative` can fail here if the provided value is already
+        // a fully resolved URL.
         let value_relative = match base_import_map_dir.make_relative(&value_url)
         {
           Some(v) => format!("./{}", v),
@@ -56,22 +58,24 @@ pub fn create_synthetic_import_map(
     synth_import_map_scopes_obj.insert(member_prefix.to_string(), member_scope);
 
     if let Some(scopes) = child_config.import_map_value.get("scopes") {
-      for (scope_key, scope_value) in scopes.as_object().unwrap() {
+      for (scope_name, scope_obj) in scopes.as_object().unwrap() {
         // Keys for scopes need to be processed - they might look like
         // "/foo/" and coming from "bar" workspace member. So we need to
         // prepend the member name to the scope.
-        let scope_key_dir = member_dir.join(scope_key).unwrap();
+        let scope_name_dir = member_dir.join(scope_name).unwrap();
         let relative =
-          base_import_map_dir.make_relative(&scope_key_dir).unwrap();
+          base_import_map_dir.make_relative(&scope_name_dir).unwrap();
         let new_key =
           format!("./{}/", relative.strip_suffix('/').unwrap_or(&relative));
 
         let mut new_scope: HashMap<String, String> = HashMap::default();
-        for (key, value) in scope_value.as_object().unwrap() {
+        for (key, value) in scope_obj.as_object().unwrap() {
           let Some(value_str) = value.as_str() else {
             continue;
           };
           let value_url = member_dir.join(value_str).unwrap();
+          // `make_relative` can fail here if the provided value is already
+          // a fully resolved URL.
           let value_relative =
             match base_import_map_dir.make_relative(&value_url) {
               Some(v) => format!("./{}", v),
