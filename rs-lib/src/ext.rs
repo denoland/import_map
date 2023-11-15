@@ -35,9 +35,14 @@ pub fn create_synthetic_import_map(
     let member_scope_obj = member_scope.as_object_mut().unwrap();
 
     let member_dir = pop_last_segment(&child_config.base_url);
-    let relative = base_import_map_dir.make_relative(&member_dir).unwrap();
-    let member_prefix =
-      format!("./{}/", relative.strip_suffix('/').unwrap_or(&relative));
+    let relative_to_base_dir =
+      base_import_map_dir.make_relative(&member_dir).unwrap();
+    let member_prefix = format!(
+      "./{}/",
+      relative_to_base_dir
+        .strip_suffix('/')
+        .unwrap_or(&relative_to_base_dir)
+    );
 
     if let Some(imports) = child_config.import_map_value.get("imports") {
       for (key, value) in imports.as_object().unwrap() {
@@ -47,12 +52,13 @@ pub fn create_synthetic_import_map(
         let value_url = member_dir.join(value_str).unwrap();
         // `make_relative` can fail here if the provided value is already
         // a fully resolved URL.
-        let value_relative = match base_import_map_dir.make_relative(&value_url)
-        {
-          Some(v) => format!("./{}", v),
-          None => value_str.to_string(),
-        };
-        member_scope_obj.insert(key.to_string(), Value::String(value_relative));
+        let value_relative_to_base_dir =
+          match base_import_map_dir.make_relative(&value_url) {
+            Some(v) => format!("./{}", v),
+            None => value_str.to_string(),
+          };
+        member_scope_obj
+          .insert(key.to_string(), Value::String(value_relative_to_base_dir));
       }
     }
     synth_import_map_scopes_obj.insert(member_prefix.to_string(), member_scope);
@@ -63,10 +69,14 @@ pub fn create_synthetic_import_map(
         // "/foo/" and coming from "bar" workspace member. So we need to
         // prepend the member name to the scope.
         let scope_name_dir = member_dir.join(scope_name).unwrap();
-        let relative =
+        let relative_to_base_dir =
           base_import_map_dir.make_relative(&scope_name_dir).unwrap();
-        let new_key =
-          format!("./{}/", relative.strip_suffix('/').unwrap_or(&relative));
+        let new_key = format!(
+          "./{}/",
+          relative_to_base_dir
+            .strip_suffix('/')
+            .unwrap_or(&relative_to_base_dir)
+        );
 
         let mut new_scope: HashMap<String, String> = HashMap::default();
         for (key, value) in scope_obj.as_object().unwrap() {
@@ -76,12 +86,12 @@ pub fn create_synthetic_import_map(
           let value_url = member_dir.join(value_str).unwrap();
           // `make_relative` can fail here if the provided value is already
           // a fully resolved URL.
-          let value_relative =
+          let value_relative_to_base_dir =
             match base_import_map_dir.make_relative(&value_url) {
               Some(v) => format!("./{}", v),
               None => value_str.to_string(),
             };
-          new_scope.insert(key.to_string(), value_relative);
+          new_scope.insert(key.to_string(), value_relative_to_base_dir);
         }
         synth_import_map_scopes_obj
           .insert(new_key, serde_json::to_value(new_scope).unwrap());
