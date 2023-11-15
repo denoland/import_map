@@ -10,6 +10,7 @@ use std::fmt;
 use std::fmt::Debug;
 use url::Url;
 
+#[cfg(feature = "ext")]
 pub mod ext;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
