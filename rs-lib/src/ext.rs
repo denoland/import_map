@@ -33,11 +33,11 @@ pub fn expand_imports(import_map: ImportMapConfig) -> Value {
         {
           let value_with_trailing_slash =
             if let Some(value_str) = value_str.strip_prefix("jsr:") {
-              let value_str = value_str.strip_prefix("/").unwrap_or(value_str);
+              let value_str = value_str.strip_prefix('/').unwrap_or(value_str);
               format!("jsr:/{}/", value_str)
             } else {
               let value_str = value_str.strip_prefix("npm:").unwrap();
-              let value_str = value_str.strip_prefix("/").unwrap_or(value_str);
+              let value_str = value_str.strip_prefix('/').unwrap_or(value_str);
               format!("npm:/{}/", value_str)
             };
 
