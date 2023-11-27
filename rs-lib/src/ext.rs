@@ -28,14 +28,24 @@ pub fn expand_imports(import_map: ImportMapConfig) -> Value {
           continue;
         };
 
-        if value_str.starts_with("jsr:")
-          || value_str.starts_with("npm:") && !value_str.ends_with('/')
+        if (value_str.starts_with("jsr:") || value_str.starts_with("npm:"))
+          && !value_str.ends_with('/')
         {
-          let value_with_trailing_slash = format!("{}/", value_str);
+          let value_with_trailing_slash =
+            if let Some(value_str) = value_str.strip_prefix("jsr:") {
+              let value_str = value_str.strip_prefix("/").unwrap_or(value_str);
+              format!("jsr:/{}/", value_str)
+            } else {
+              let value_str = value_str.strip_prefix("npm:").unwrap();
+              let value_str = value_str.strip_prefix("/").unwrap_or(value_str);
+              format!("npm:/{}/", value_str)
+            };
+
           expanded_imports.insert(
             key_with_trailing_slash,
             Value::String(value_with_trailing_slash),
           );
+
           continue;
         }
       }
@@ -303,6 +313,7 @@ mod tests {
       import_map_value: json!({
         "imports": {
           "@std": "jsr:/@std",
+          "@foo": "jsr:@foo",
           "express": "npm:express@4",
           "foo": "https://example.com/foo/bar"
         },
@@ -315,8 +326,10 @@ mod tests {
       json!({
         "@std": "jsr:/@std",
         "@std/": "jsr:/@std/",
+        "@foo": "jsr:@foo",
+        "@foo/": "jsr:/@foo/",
         "express": "npm:express@4",
-        "express/": "npm:express@4/",
+        "express/": "npm:/express@4/",
         "foo": "https://example.com/foo/bar"
       })
     );
@@ -329,7 +342,7 @@ mod tests {
       import_map_value: json!({
         "imports": {
           "express": "npm:express@4",
-          "express/": "npm:express@4/foo/bar/",
+          "express/": "npm:/express@4/foo/bar/",
         },
         "scopes": {}
       }),
@@ -339,7 +352,7 @@ mod tests {
       value,
       json!({
         "express": "npm:express@4",
-        "express/": "npm:express@4/foo/bar/",
+        "express/": "npm:/express@4/foo/bar/",
       })
     );
   }
