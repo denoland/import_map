@@ -28,25 +28,25 @@ pub fn expand_imports(import_map: ImportMapConfig) -> Value {
           continue;
         };
 
-        if (value_str.starts_with("jsr:") || value_str.starts_with("npm:"))
-          && !value_str.ends_with('/')
-        {
+        if !value_str.ends_with('/') {
           let value_with_trailing_slash =
             if let Some(value_str) = value_str.strip_prefix("jsr:") {
               let value_str = value_str.strip_prefix('/').unwrap_or(value_str);
-              format!("jsr:/{}/", value_str)
-            } else {
-              let value_str = value_str.strip_prefix("npm:").unwrap();
+              Some(format!("jsr:/{}/", value_str))
+            } else if let Some(value_str) = value_str.strip_prefix("npm:") {
               let value_str = value_str.strip_prefix('/').unwrap_or(value_str);
-              format!("npm:/{}/", value_str)
+              Some(format!("npm:/{}/", value_str))
+            } else {
+              None
             };
 
-          expanded_imports.insert(
-            key_with_trailing_slash,
-            Value::String(value_with_trailing_slash),
-          );
-
-          continue;
+          if let Some(value_with_trailing_slash) = value_with_trailing_slash {
+            expanded_imports.insert(
+              key_with_trailing_slash,
+              Value::String(value_with_trailing_slash),
+            );
+            continue;
+          }
         }
       }
 
