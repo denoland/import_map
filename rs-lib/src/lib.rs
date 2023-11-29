@@ -1,5 +1,6 @@
 // Copyright 2021-2023 the Deno authors. All rights reserved. MIT license.
 
+use ext::ImportMapConfig;
 use indexmap::IndexMap;
 use serde_json::Map;
 use serde_json::Value;
@@ -525,6 +526,38 @@ impl ImportMap {
     fn escape_string(text: &str) -> String {
       text.replace('"', "\\\"")
     }
+  }
+
+  /// This function can be used to modify the import map in place,
+  /// by modifying `imports` mapping to expand
+  /// bare specifier imports to provide "directory" imports, eg.:
+  /// - `"express": "npm:express@4` -> `"express/": "npm:/express@4/`
+  /// - `"@std": "jsr:@std` -> `"std@/": "jsr:/@std/`
+  ///
+  /// Only `npm:` and `jsr:` scheme are expanded and if there's already a
+  /// "directory" import, it is not overwritten.
+  #[cfg(feature = "ext")]
+  pub fn ext_expand_imports(&mut self) {
+    let json_str = self.to_json();
+    let json_value = serde_json::from_str(&json_str).unwrap();
+    let expanded_imports = ext::expand_imports(ImportMapConfig {
+      base_url: self.base_url.clone(),
+      import_map_value: json_value,
+    });
+    let expanded_imports_map = expanded_imports.as_object().unwrap();
+    let mut expanded_imports_im =
+      IndexMap::with_capacity(expanded_imports_map.len());
+    for (key, value) in expanded_imports_map {
+      expanded_imports_im
+        .insert(key.to_string(), Some(value.as_str().unwrap().to_string()));
+    }
+    let mut diagnostics = vec![];
+    let imports = parse_specifier_map(
+      expanded_imports_im,
+      &self.base_url,
+      &mut diagnostics,
+    );
+    self.imports = imports;
   }
 }
 
@@ -1178,6 +1211,36 @@ mod test {
     assert_eq!(
       resolved_specifier.as_str(),
       "http://localhost/C:/folder/file.ts"
+    );
+  }
+
+  #[test]
+  #[cfg(feature = "ext")]
+  fn ext_expand_imports() {
+    let url = Url::parse("file:///deno.json").unwrap();
+    let json_string = r#"{
+  "imports": {
+    "@std": "jsr:/@std",
+    "@foo": "jsr:@foo",
+    "express": "npm:express@4",
+    "foo": "https://example.com/foo/bar"
+  },
+  "scopes": {}
+}"#;
+    let im = parse_from_json(&url, json_string).unwrap();
+    let mut im = im.import_map;
+    im.ext_expand_imports();
+    assert_eq!(
+      serde_json::to_value(&im.imports).unwrap(),
+      serde_json::json!({
+        "@std": "jsr:/@std",
+        "@std/": "jsr:/@std/",
+        "@foo": "jsr:@foo",
+        "@foo/": "jsr:/@foo/",
+        "express": "npm:express@4",
+        "express/": "npm:/express@4/",
+        "foo": "https://example.com/foo/bar"
+      })
     );
   }
 }

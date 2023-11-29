@@ -4,6 +4,13 @@ use serde_json::json;
 use serde_json::Value;
 use url::Url;
 
+/// This function can be used to modify the `import` mapping to expand
+/// bare specifier imports to provide "directory" imports, eg.:
+/// - `"express": "npm:express@4` -> `"express/": "npm:/express@4/`
+/// - `"@std": "jsr:@std` -> `"std@/": "jsr:/@std/`
+///
+/// Only `npm:` and `jsr:` scheme are expanded and if there's already a
+/// "directory" import, it is not overwritten.
 pub fn expand_imports(import_map: ImportMapConfig) -> Value {
   let mut expanded_imports = serde_json::Map::new();
 
