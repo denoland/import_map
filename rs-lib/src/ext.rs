@@ -4,6 +4,66 @@ use serde_json::json;
 use serde_json::Value;
 use url::Url;
 
+/// This function can be used to modify the `import` mapping to expand
+/// bare specifier imports to provide "directory" imports, eg.:
+/// - `"express": "npm:express@4` -> `"express/": "npm:/express@4/`
+/// - `"@std": "jsr:@std` -> `"std@/": "jsr:/@std/`
+///
+/// Only `npm:` and `jsr:` scheme are expanded and if there's already a
+/// "directory" import, it is not overwritten.
+pub fn expand_imports(import_map: ImportMapConfig) -> Value {
+  let mut expanded_imports = serde_json::Map::new();
+
+  let imports = import_map
+    .import_map_value
+    .get("imports")
+    .cloned()
+    .unwrap_or_else(|| Value::Null);
+
+  if let Some(imports_map) = imports.as_object() {
+    for (key, value) in imports_map {
+      if !key.ends_with('/') {
+        expanded_imports.insert(key.to_string(), value.clone());
+        let key_with_trailing_slash = format!("{}/", key);
+
+        // Don't overwrite existing keys
+        if imports_map.contains_key(&key_with_trailing_slash) {
+          continue;
+        }
+
+        let Some(value_str) = value.as_str() else {
+          continue;
+        };
+
+        if !value_str.ends_with('/') {
+          let value_with_trailing_slash =
+            if let Some(value_str) = value_str.strip_prefix("jsr:") {
+              let value_str = value_str.strip_prefix('/').unwrap_or(value_str);
+              Some(format!("jsr:/{}/", value_str))
+            } else if let Some(value_str) = value_str.strip_prefix("npm:") {
+              let value_str = value_str.strip_prefix('/').unwrap_or(value_str);
+              Some(format!("npm:/{}/", value_str))
+            } else {
+              None
+            };
+
+          if let Some(value_with_trailing_slash) = value_with_trailing_slash {
+            expanded_imports.insert(
+              key_with_trailing_slash,
+              Value::String(value_with_trailing_slash),
+            );
+            continue;
+          }
+        }
+      }
+
+      expanded_imports.insert(key.to_string(), value.clone());
+    }
+  }
+
+  Value::Object(expanded_imports)
+}
+
 pub struct ImportMapConfig {
   pub base_url: Url,
   pub import_map_value: Value,
@@ -249,6 +309,57 @@ mod tests {
             "foo/": "./bar/buzz/"
           }
         },
+      })
+    );
+  }
+
+  #[test]
+  fn test_expand_imports() {
+    let import_map = ImportMapConfig {
+      base_url: Url::parse("file:///import_map.json").unwrap(),
+      import_map_value: json!({
+        "imports": {
+          "@std": "jsr:/@std",
+          "@foo": "jsr:@foo",
+          "express": "npm:express@4",
+          "foo": "https://example.com/foo/bar"
+        },
+        "scopes": {}
+      }),
+    };
+    let value = expand_imports(import_map);
+    assert_eq!(
+      value,
+      json!({
+        "@std": "jsr:/@std",
+        "@std/": "jsr:/@std/",
+        "@foo": "jsr:@foo",
+        "@foo/": "jsr:/@foo/",
+        "express": "npm:express@4",
+        "express/": "npm:/express@4/",
+        "foo": "https://example.com/foo/bar"
+      })
+    );
+  }
+
+  #[test]
+  fn test_expand_imports_with_trailing_slash() {
+    let import_map = ImportMapConfig {
+      base_url: Url::parse("file:///import_map.json").unwrap(),
+      import_map_value: json!({
+        "imports": {
+          "express": "npm:express@4",
+          "express/": "npm:/express@4/foo/bar/",
+        },
+        "scopes": {}
+      }),
+    };
+    let value = expand_imports(import_map);
+    assert_eq!(
+      value,
+      json!({
+        "express": "npm:express@4",
+        "express/": "npm:/express@4/foo/bar/",
       })
     );
   }
