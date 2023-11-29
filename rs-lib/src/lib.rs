@@ -538,7 +538,7 @@ impl ImportMap {
   #[cfg(feature = "ext")]
   pub fn ext_expand_imports(&mut self) {
     use ext::ImportMapConfig;
-    
+
     let json_str = self.to_json();
     let json_value = serde_json::from_str(&json_str).unwrap();
     let expanded_imports = ext::expand_imports(ImportMapConfig {
