@@ -1,6 +1,5 @@
 // Copyright 2021-2023 the Deno authors. All rights reserved. MIT license.
 
-use ext::ImportMapConfig;
 use indexmap::IndexMap;
 use serde_json::Map;
 use serde_json::Value;
@@ -538,6 +537,8 @@ impl ImportMap {
   /// "directory" import, it is not overwritten.
   #[cfg(feature = "ext")]
   pub fn ext_expand_imports(&mut self) {
+    use ext::ImportMapConfig;
+    
     let json_str = self.to_json();
     let json_value = serde_json::from_str(&json_str).unwrap();
     let expanded_imports = ext::expand_imports(ImportMapConfig {
