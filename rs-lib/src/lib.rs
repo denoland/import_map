@@ -1,4 +1,4 @@
-// Copyright 2021-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use indexmap::IndexMap;
 use serde_json::Map;
