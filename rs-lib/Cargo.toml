@@ -17,7 +17,7 @@ ext = []
 [dependencies]
 indexmap = { version = "2.1.0", features = ["serde"] }
 serde = { version = "1.0.129", features = ["derive"] }
-serde_json = { version = "1.0.66", features = ["preserve_order"] }
+serde_json = { version = "1.0.111", features = ["preserve_order"] }
 url = { version = "2.3.1", features = ["serde"] }
 log = { version = "0.4.14", optional = true }
 
