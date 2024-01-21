@@ -346,9 +346,19 @@ impl ImportMap {
   /// import map could be used as an import specifier that resolves using the
   /// import map.
   pub fn lookup(&self, specifier: &Url, referrer: &Url) -> Option<String> {
-    // todo: investigate using entries_for_referrer here instead
-    lookup_scopes(&self.scopes, specifier, referrer.as_str())
-      .or_else(|| lookup_imports(&self.imports, specifier))
+    let specifier_str = specifier.as_str();
+    for entry in self.entries_for_referrer(referrer) {
+      if let Some(address) = entry.value {
+        let address_str = address.as_str();
+        if address_str == specifier_str {
+          return Some(entry.raw_key.to_string());
+        }
+        if address_str.ends_with('/') && specifier_str.starts_with(address_str) {
+          return Some(specifier_str.replace(address_str, entry.raw_key));
+        }
+      }
+    }
+    None
   }
 
   /// Iterates over the import map entries for the specified referrer in the
@@ -994,61 +1004,6 @@ fn append_specifier_to_base(
   } else {
     Ok(base.join(specifier)?)
   }
-}
-
-/// Attempts to match a specifier to a specifier map value, returning the
-/// optional string specifier that can be used to resolve against the import
-/// map.
-fn lookup_imports(
-  specifier_map: &SpecifierMap,
-  specifier: &Url,
-) -> Option<String> {
-  let specifier_str = specifier.to_string();
-  for (key, value) in specifier_map.inner.iter() {
-    let key = value.raw_key.as_ref().unwrap_or(key);
-    if let Some(address) = &value.maybe_address {
-      let address_str = address.to_string();
-      if address_str == specifier_str {
-        return Some(key.clone());
-      }
-      if address_str.ends_with('/') && specifier_str.starts_with(&address_str) {
-        return Some(specifier_str.replace(&address_str, key));
-      }
-    }
-  }
-  None
-}
-
-/// Attempts to iterate over scopes to identify a scope entry that matches the
-/// referrer and then attempts to lookup the specifier in the scope map,
-/// returning a string specifier that can be used to resolve the specifier via
-/// the import map.
-fn lookup_scopes(
-  scopes: &ScopesMap,
-  specifier: &Url,
-  referrer: &str,
-) -> Option<String> {
-  if let Some(scopes_map) = scopes.get(referrer) {
-    let scopes_match = lookup_imports(&scopes_map.imports, specifier);
-    if scopes_match.is_some() {
-      return scopes_match;
-    }
-  }
-
-  for (normalized_scope_key, scopes_map) in scopes.iter() {
-    if normalized_scope_key.ends_with('/')
-      && referrer.starts_with(normalized_scope_key)
-      && normalized_scope_key != referrer
-    // already checked above
-    {
-      let scopes_match = lookup_imports(&scopes_map.imports, specifier);
-      if scopes_match.is_some() {
-        return scopes_match;
-      }
-    }
-  }
-
-  None
 }
 
 fn resolve_scopes_match(
