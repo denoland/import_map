@@ -346,6 +346,7 @@ impl ImportMap {
   /// import map could be used as an import specifier that resolves using the
   /// import map.
   pub fn lookup(&self, specifier: &Url, referrer: &Url) -> Option<String> {
+    // todo: investigate using entries_for_referrer here instead
     lookup_scopes(&self.scopes, specifier, referrer.as_str())
       .or_else(|| lookup_imports(&self.imports, specifier))
   }
@@ -365,14 +366,15 @@ impl ImportMap {
     for (normalized_scope_key, scopes_map) in self.scopes.iter() {
       if normalized_scope_key.ends_with('/')
         && referrer.starts_with(normalized_scope_key)
-        && normalized_scope_key != referrer // already checked above
+        && normalized_scope_key != referrer
+      // already checked above
       {
         imports.push(&scopes_map.imports);
       }
     }
 
     imports.push(&self.imports);
-    imports.into_iter().map(|i| i.entries()).flatten()
+    imports.into_iter().flat_map(|i| i.entries())
   }
 
   pub fn resolve(
@@ -1036,7 +1038,8 @@ fn lookup_scopes(
   for (normalized_scope_key, scopes_map) in scopes.iter() {
     if normalized_scope_key.ends_with('/')
       && referrer.starts_with(normalized_scope_key)
-      && normalized_scope_key != referrer // already checked above
+      && normalized_scope_key != referrer
+    // already checked above
     {
       let scopes_match = lookup_imports(&scopes_map.imports, specifier);
       if scopes_match.is_some() {
