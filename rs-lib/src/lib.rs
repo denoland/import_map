@@ -1230,4 +1230,39 @@ mod test {
       })
     );
   }
+
+  #[test]
+  fn iterate_applicable_entries() {
+    let url = Url::parse("file:///deno.json").unwrap();
+    let json_string = r#"{
+  "imports": {
+    "foo": "./main.ts"
+  },
+  "scopes": {
+    "./folder/": {
+      "bar": "./main.ts"
+    },
+    "./folder/file.ts": {
+      "baz": "./other.ts"
+    }
+  }
+}"#;
+    let im = parse_from_json(&url, json_string).unwrap();
+    let im = im.import_map;
+    let keys = im
+      .entries_for_referrer(&Url::parse("file:///folder/main.ts").unwrap())
+      .map(|e| e.raw_key)
+      .collect::<Vec<_>>();
+    assert_eq!(keys, ["bar", "foo"]);
+    let keys = im
+      .entries_for_referrer(&Url::parse("file:///folder/file.ts").unwrap())
+      .map(|e| e.raw_key)
+      .collect::<Vec<_>>();
+    assert_eq!(keys, ["baz", "bar", "foo"]);
+    let keys = im
+      .entries_for_referrer(&Url::parse("file:///other/file.ts").unwrap())
+      .map(|e| e.raw_key)
+      .collect::<Vec<_>>();
+    assert_eq!(keys, ["foo"]);
+  }
 }
