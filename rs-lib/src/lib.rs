@@ -377,8 +377,8 @@ impl ImportMap {
     for (normalized_scope_key, scopes_map) in self.scopes.iter() {
       if normalized_scope_key.ends_with('/')
         && referrer.starts_with(normalized_scope_key)
+        // already checked above
         && normalized_scope_key != referrer
-      // already checked above
       {
         imports.push(&scopes_map.imports);
       }
