@@ -352,7 +352,7 @@ impl ImportMap {
 
   /// Iterates over the import map entries for the specified referrer in the
   /// order that should be tested for.
-  pub fn import_entries_for_referrer(
+  pub fn entries_for_referrer(
     &self,
     referrer: &Url,
   ) -> impl Iterator<Item = SpecifierMapEntry<'_>> {
