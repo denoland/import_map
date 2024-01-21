@@ -353,7 +353,8 @@ impl ImportMap {
         if address_str == specifier_str {
           return Some(entry.raw_key.to_string());
         }
-        if address_str.ends_with('/') && specifier_str.starts_with(address_str) {
+        if address_str.ends_with('/') && specifier_str.starts_with(address_str)
+        {
           return Some(specifier_str.replace(address_str, entry.raw_key));
         }
       }
