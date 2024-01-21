@@ -94,6 +94,7 @@ fn is_special(url: &Url) -> bool {
 }
 
 /// A key value entry in an import map's "imports", or imports of a scope.
+#[derive(Debug)]
 pub struct SpecifierMapEntry<'a> {
   /// Resolved key.
   pub key: &'a str,
