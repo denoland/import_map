@@ -94,6 +94,7 @@ fn is_special(url: &Url) -> bool {
 }
 
 /// A key value entry in an import map's "imports", or imports of a scope.
+#[derive(Debug)]
 pub struct SpecifierMapEntry<'a> {
   /// Resolved key.
   pub key: &'a str,
@@ -346,8 +347,46 @@ impl ImportMap {
   /// import map could be used as an import specifier that resolves using the
   /// import map.
   pub fn lookup(&self, specifier: &Url, referrer: &Url) -> Option<String> {
-    lookup_scopes(&self.scopes, specifier, referrer.as_str())
-      .or_else(|| lookup_imports(&self.imports, specifier))
+    let specifier_str = specifier.as_str();
+    for entry in self.entries_for_referrer(referrer) {
+      if let Some(address) = entry.value {
+        let address_str = address.as_str();
+        if address_str == specifier_str {
+          return Some(entry.raw_key.to_string());
+        }
+        if address_str.ends_with('/') && specifier_str.starts_with(address_str)
+        {
+          return Some(specifier_str.replace(address_str, entry.raw_key));
+        }
+      }
+    }
+    None
+  }
+
+  /// Iterates over the import map entries for the specified referrer in the
+  /// order that should be tested for.
+  pub fn entries_for_referrer(
+    &self,
+    referrer: &Url,
+  ) -> impl Iterator<Item = SpecifierMapEntry<'_>> {
+    let referrer = referrer.as_str();
+    let mut imports = Vec::with_capacity(1 + self.scopes.len());
+    if let Some(scopes_map) = self.scopes.get(referrer) {
+      imports.push(&scopes_map.imports);
+    }
+
+    for (normalized_scope_key, scopes_map) in self.scopes.iter() {
+      if normalized_scope_key.ends_with('/')
+        && referrer.starts_with(normalized_scope_key)
+        // already checked above
+        && normalized_scope_key != referrer
+      {
+        imports.push(&scopes_map.imports);
+      }
+    }
+
+    imports.push(&self.imports);
+    imports.into_iter().flat_map(|i| i.entries())
   }
 
   pub fn resolve(
@@ -969,59 +1008,6 @@ fn append_specifier_to_base(
   }
 }
 
-/// Attempts to match a specifier to a specifier map value, returning the
-/// optional string specifier that can be used to resolve against the import
-/// map.
-fn lookup_imports(
-  specifier_map: &SpecifierMap,
-  specifier: &Url,
-) -> Option<String> {
-  let specifier_str = specifier.to_string();
-  for (key, value) in specifier_map.inner.iter() {
-    let key = value.raw_key.as_ref().unwrap_or(key);
-    if let Some(address) = &value.maybe_address {
-      let address_str = address.to_string();
-      if address_str == specifier_str {
-        return Some(key.clone());
-      }
-      if address_str.ends_with('/') && specifier_str.starts_with(&address_str) {
-        return Some(specifier_str.replace(&address_str, key));
-      }
-    }
-  }
-  None
-}
-
-/// Attempts to iterate over scopes to identify a scope entry that matches the
-/// referrer and then attempts to lookup the specifier in the scope map,
-/// returning a string specifier that can be used to resolve the specifier via
-/// the import map.
-fn lookup_scopes(
-  scopes: &ScopesMap,
-  specifier: &Url,
-  referrer: &str,
-) -> Option<String> {
-  if let Some(scopes_map) = scopes.get(referrer) {
-    let scopes_match = lookup_imports(&scopes_map.imports, specifier);
-    if scopes_match.is_some() {
-      return scopes_match;
-    }
-  }
-
-  for (normalized_scope_key, scopes_map) in scopes.iter() {
-    if normalized_scope_key.ends_with('/')
-      && referrer.starts_with(normalized_scope_key)
-    {
-      let scopes_match = lookup_imports(&scopes_map.imports, specifier);
-      if scopes_match.is_some() {
-        return scopes_match;
-      }
-    }
-  }
-
-  None
-}
-
 fn resolve_scopes_match(
   scopes: &ScopesMap,
   normalized_specifier: &str,
@@ -1243,5 +1229,40 @@ mod test {
         "foo": "https://example.com/foo/bar"
       })
     );
+  }
+
+  #[test]
+  fn iterate_applicable_entries() {
+    let url = Url::parse("file:///deno.json").unwrap();
+    let json_string = r#"{
+  "imports": {
+    "foo": "./main.ts"
+  },
+  "scopes": {
+    "./folder/": {
+      "bar": "./main.ts"
+    },
+    "./folder/file.ts": {
+      "baz": "./other.ts"
+    }
+  }
+}"#;
+    let im = parse_from_json(&url, json_string).unwrap();
+    let im = im.import_map;
+    let keys = im
+      .entries_for_referrer(&Url::parse("file:///folder/main.ts").unwrap())
+      .map(|e| e.raw_key)
+      .collect::<Vec<_>>();
+    assert_eq!(keys, ["bar", "foo"]);
+    let keys = im
+      .entries_for_referrer(&Url::parse("file:///folder/file.ts").unwrap())
+      .map(|e| e.raw_key)
+      .collect::<Vec<_>>();
+    assert_eq!(keys, ["baz", "bar", "foo"]);
+    let keys = im
+      .entries_for_referrer(&Url::parse("file:///other/file.ts").unwrap())
+      .map(|e| e.raw_key)
+      .collect::<Vec<_>>();
+    assert_eq!(keys, ["foo"]);
   }
 }
