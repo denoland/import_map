@@ -350,6 +350,31 @@ impl ImportMap {
       .or_else(|| lookup_imports(&self.imports, specifier))
   }
 
+  /// Iterates over the import map entries for the specified referrer in the
+  /// order that should be tested for.
+  pub fn import_entries_for_referrer(
+    &self,
+    referrer: &Url,
+  ) -> impl Iterator<Item = SpecifierMapEntry<'_>> {
+    let referrer = referrer.as_str();
+    let mut imports = Vec::with_capacity(2 + self.scopes.len());
+    if let Some(scopes_map) = self.scopes.get(referrer) {
+      imports.push(&scopes_map.imports);
+    }
+
+    for (normalized_scope_key, scopes_map) in self.scopes.iter() {
+      if normalized_scope_key.ends_with('/')
+        && referrer.starts_with(normalized_scope_key)
+        && normalized_scope_key != referrer // already checked above
+      {
+        imports.push(&scopes_map.imports);
+      }
+    }
+
+    imports.push(&self.imports);
+    imports.into_iter().map(|i| i.entries()).flatten()
+  }
+
   pub fn resolve(
     &self,
     specifier: &str,
@@ -1011,6 +1036,7 @@ fn lookup_scopes(
   for (normalized_scope_key, scopes_map) in scopes.iter() {
     if normalized_scope_key.ends_with('/')
       && referrer.starts_with(normalized_scope_key)
+      && normalized_scope_key != referrer // already checked above
     {
       let scopes_match = lookup_imports(&scopes_map.imports, specifier);
       if scopes_match.is_some() {
