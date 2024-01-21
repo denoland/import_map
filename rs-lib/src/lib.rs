@@ -369,7 +369,7 @@ impl ImportMap {
     referrer: &Url,
   ) -> impl Iterator<Item = SpecifierMapEntry<'_>> {
     let referrer = referrer.as_str();
-    let mut imports = Vec::with_capacity(2 + self.scopes.len());
+    let mut imports = Vec::with_capacity(1 + self.scopes.len());
     if let Some(scopes_map) = self.scopes.get(referrer) {
       imports.push(&scopes_map.imports);
     }
