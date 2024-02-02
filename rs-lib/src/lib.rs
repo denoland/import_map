@@ -400,7 +400,6 @@ impl ImportMap {
     } else {
       specifier.to_string()
     };
-    dbg!(&normalized_specifier);
 
     let scopes_match = resolve_scopes_match(
       &self.scopes,
@@ -1098,7 +1097,6 @@ fn resolve_imports_match(
 
     let after_prefix = &normalized_specifier[specifier_key.len()..];
 
-    dbg!(after_prefix);
     let url = match append_specifier_to_base(resolution_result, after_prefix) {
       Ok(url) => url,
       Err(_) => {
@@ -1110,7 +1108,6 @@ fn resolve_imports_match(
         )));
       }
     };
-    dbg!(url.as_str());
 
     if !url.as_str().starts_with(resolution_result.as_str()) {
       return Err(ImportMapError::Other(format!(
