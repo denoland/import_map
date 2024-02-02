@@ -400,6 +400,7 @@ impl ImportMap {
     } else {
       specifier.to_string()
     };
+    dbg!(&normalized_specifier);
 
     let scopes_match = resolve_scopes_match(
       &self.scopes,
@@ -970,6 +971,10 @@ fn append_specifier_to_base(
   base: &Url,
   specifier: &str,
 ) -> Result<Url, url::ParseError> {
+  // Percent-decode first. Specifier might be pre-encoded and could get encoded
+  // again.
+  let specifier =
+    percent_encoding::percent_decode_str(specifier).decode_utf8_lossy();
   let mut base = base.clone();
   let is_relative_or_absolute_specifier = specifier.starts_with("../")
     || specifier.starts_with("./")
@@ -993,7 +998,7 @@ fn append_specifier_to_base(
           maybe_query_string_and_fragment = Some(&specifier[idx..]);
           &specifier[..idx]
         }
-        None => specifier,
+        None => &specifier,
       };
       segments.extend(prefix.split('/'));
     }
@@ -1004,7 +1009,7 @@ fn append_specifier_to_base(
       Ok(base)
     }
   } else {
-    Ok(base.join(specifier)?)
+    Ok(base.join(&specifier)?)
   }
 }
 
@@ -1093,6 +1098,7 @@ fn resolve_imports_match(
 
     let after_prefix = &normalized_specifier[specifier_key.len()..];
 
+    dbg!(after_prefix);
     let url = match append_specifier_to_base(resolution_result, after_prefix) {
       Ok(url) => url,
       Err(_) => {
@@ -1104,6 +1110,7 @@ fn resolve_imports_match(
         )));
       }
     };
+    dbg!(url.as_str());
 
     if !url.as_str().starts_with(resolution_result.as_str()) {
       return Err(ImportMapError::Other(format!(
