@@ -970,6 +970,10 @@ fn append_specifier_to_base(
   base: &Url,
   specifier: &str,
 ) -> Result<Url, url::ParseError> {
+  // Percent-decode first. Specifier might be pre-encoded and could get encoded
+  // again.
+  let specifier =
+    percent_encoding::percent_decode_str(specifier).decode_utf8_lossy();
   let mut base = base.clone();
   let is_relative_or_absolute_specifier = specifier.starts_with("../")
     || specifier.starts_with("./")
@@ -993,7 +997,7 @@ fn append_specifier_to_base(
           maybe_query_string_and_fragment = Some(&specifier[idx..]);
           &specifier[..idx]
         }
-        None => specifier,
+        None => &specifier,
       };
       segments.extend(prefix.split('/'));
     }
@@ -1004,7 +1008,7 @@ fn append_specifier_to_base(
       Ok(base)
     }
   } else {
-    Ok(base.join(specifier)?)
+    Ok(base.join(&specifier)?)
   }
 }
 

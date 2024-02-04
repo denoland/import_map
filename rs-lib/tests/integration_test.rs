@@ -714,3 +714,23 @@ fn parse_with_address_hook() {
     Url::parse("npm:/preact/hooks").unwrap()
   );
 }
+
+#[test]
+fn parse_with_no_double_encode() {
+  let result = parse_from_json(
+    &Url::parse("file:///").unwrap(),
+    &json!({
+      "imports": {
+        "./": "./"
+      }
+    })
+    .to_string(),
+  )
+  .unwrap();
+  assert_eq!(result.diagnostics, vec![]);
+  let referrer = Url::parse("file:///mod.ts").unwrap();
+  assert_eq!(
+    result.import_map.resolve("./{name}.ts", &referrer).unwrap(),
+    Url::parse("file:///%7Bname%7D.ts").unwrap()
+  );
+}
