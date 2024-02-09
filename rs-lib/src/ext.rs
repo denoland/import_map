@@ -76,7 +76,7 @@ fn pop_last_segment(url: &Url) -> Url {
 }
 
 pub fn create_synthetic_import_map(
-  base_import_map: ImportMapConfig,
+  mut base_import_map: ImportMapConfig,
   children_import_maps: Vec<ImportMapConfig>,
 ) -> Option<(Url, Value)> {
   let mut synth_import_map_imports = serde_json::Map::new();
@@ -84,7 +84,16 @@ pub fn create_synthetic_import_map(
 
   let base_import_map_dir = pop_last_segment(&base_import_map.base_url);
 
-  for child_config in children_import_maps.iter() {
+  if let Value::Object(base_value) = &mut base_import_map.import_map_value {
+    if let Some(Value::Object(base_imports)) = base_value.remove("imports") {
+      synth_import_map_imports = base_imports;
+    }
+    if let Some(Value::Object(base_scopes)) = base_value.remove("scopes") {
+      synth_import_map_scopes = base_scopes;
+    }
+  }
+
+  for child_config in children_import_maps.into_iter() {
     let mut member_scope = serde_json::Map::new();
 
     let member_dir = pop_last_segment(&child_config.base_url);
@@ -96,9 +105,13 @@ pub fn create_synthetic_import_map(
         .strip_suffix('/')
         .unwrap_or(&relative_to_base_dir)
     );
+    let Value::Object(mut import_map_obj) = child_config.import_map_value
+    else {
+      continue;
+    };
 
-    if let Some(imports) = child_config.import_map_value.get("imports") {
-      for (key, value) in imports.as_object().unwrap() {
+    if let Some(Value::Object(imports)) = import_map_obj.remove("imports") {
+      for (key, value) in imports {
         let Some(value_str) = value.as_str() else {
           continue;
         };
@@ -110,26 +123,28 @@ pub fn create_synthetic_import_map(
             Some(v) => format!("./{}", v),
             None => value_str.to_string(),
           };
-        member_scope
-          .insert(key.to_string(), Value::String(value_relative_to_base_dir));
+        member_scope.insert(key, Value::String(value_relative_to_base_dir));
       }
     }
-    synth_import_map_scopes
-      .insert(member_prefix.to_string(), Value::Object(member_scope));
+    combine_object(
+      &mut synth_import_map_scopes,
+      member_prefix,
+      Value::Object(member_scope.clone()),
+    );
 
-    if let Some(scopes) = child_config.import_map_value.get("scopes") {
-      for (scope_name, scope_obj) in scopes.as_object().unwrap() {
+    if let Some(Value::Object(scopes)) = import_map_obj.remove("scopes") {
+      for (scope_name, scope_obj) in scopes {
         // Keys for scopes need to be processed - they might look like
         // "/foo/" and coming from "bar" workspace member. So we need to
         // prepend the member name to the scope.
-        let Ok(scope_name_dir) = member_dir.join(scope_name) else {
-          synth_import_map_scopes.insert(scope_name.clone(), scope_obj.clone());
+        let Ok(scope_name_dir) = member_dir.join(&scope_name) else {
+          combine_object(&mut synth_import_map_scopes, scope_name, scope_obj);
           continue; // not a file specifier
         };
         let Some(relative_to_base_dir) =
           base_import_map_dir.make_relative(&scope_name_dir)
         else {
-          synth_import_map_scopes.insert(scope_name.clone(), scope_obj.clone());
+          combine_object(&mut synth_import_map_scopes, scope_name, scope_obj);
           continue; // not a file specifier
         };
         let new_key = format!(
@@ -140,36 +155,28 @@ pub fn create_synthetic_import_map(
         );
 
         let mut new_scope = serde_json::Map::new();
-        for (key, value) in scope_obj.as_object().unwrap() {
-          let Some(value_str) = value.as_str() else {
-            continue;
-          };
-          let value_url = member_dir.join(value_str).unwrap();
-          // `make_relative` can fail here if the provided value is already
-          // a fully resolved URL.
-          let value_relative_to_base_dir =
-            match base_import_map_dir.make_relative(&value_url) {
-              Some(v) => format!("./{}", v),
-              None => value_str.to_string(),
+        if let Value::Object(scope_obj) = scope_obj {
+          for (key, value) in scope_obj {
+            let Some(value_str) = value.as_str() else {
+              continue;
             };
-          new_scope
-            .insert(key.to_string(), Value::String(value_relative_to_base_dir));
+            let value_url = member_dir.join(value_str).unwrap();
+            // `make_relative` can fail here if the provided value is already
+            // a fully resolved URL.
+            let value_relative_to_base_dir =
+              match base_import_map_dir.make_relative(&value_url) {
+                Some(v) => format!("./{}", v),
+                None => value_str.to_string(),
+              };
+            new_scope.insert(key, Value::String(value_relative_to_base_dir));
+          }
         }
-        synth_import_map_scopes.insert(new_key, Value::Object(new_scope));
+        combine_object(
+          &mut synth_import_map_scopes,
+          new_key,
+          Value::Object(new_scope),
+        );
       }
-    }
-  }
-
-  if let Some(base_imports) = base_import_map.import_map_value.get("imports") {
-    let base_imports_obj = base_imports.as_object().unwrap();
-    for (key, value) in base_imports_obj.iter() {
-      synth_import_map_imports.insert(key.to_owned(), value.to_owned());
-    }
-  }
-  if let Some(base_scopes) = base_import_map.import_map_value.get("scopes") {
-    let base_scopes_obj = base_scopes.as_object().unwrap();
-    for (key, value) in base_scopes_obj.iter() {
-      synth_import_map_scopes.insert(key.to_owned(), value.to_owned());
     }
   }
 
@@ -186,6 +193,26 @@ pub fn create_synthetic_import_map(
     Some((base_import_map.base_url, import_map))
   } else {
     None
+  }
+}
+
+fn combine_object(
+  base: &mut serde_json::Map<String, Value>,
+  property_name: String,
+  addition: serde_json::Value,
+) {
+  if let Some(base_property) = base.get_mut(&property_name) {
+    if let Some(base_property_obj) = base_property.as_object_mut() {
+      if let Value::Object(addition) = addition {
+        for (key, value) in addition.into_iter() {
+          combine_object(base_property_obj, key, value);
+        }
+      }
+    } else {
+      base.insert(property_name, addition);
+    }
+  } else {
+    base.insert(property_name, addition);
   }
 }
 
@@ -260,6 +287,11 @@ mod tests {
         "scopes": {
           "https://raw.githubusercontent.com/example/": {
             "https://deno.land/std/": "https://deno.land/std@0.177.0/"
+          },
+          "./foo/": {
+            "root": "./other.js",
+            // this will be overwritten by the child
+            "override": "./overwritten.js"
           }
         }
       }),
@@ -270,11 +302,15 @@ mod tests {
         import_map_value: json!({
           "imports": {
             "~/": "./",
-            "foo/": "./bar/"
+            "foo/": "./bar/",
+            "override": "./overwritten.js"
           },
           "scopes": {
             "./fizz/": {
               "express": "npm:express@5",
+            },
+            "https://raw.githubusercontent.com/example/": {
+              "https://example.com/": "https://deno.land/std@0.177.0/"
             },
             "https://raw.githubusercontent.com/other/": {
               "https://deno.land/std/": "https://deno.land/std@0.177.0/"
@@ -310,7 +346,9 @@ mod tests {
         "scopes": {
           "./foo/": {
             "~/": "./foo/",
-            "foo/": "./foo/bar/"
+            "foo/": "./foo/bar/",
+            "override": "./foo/overwritten.js",
+            "root": "./other.js",
           },
           "./foo/fizz/": {
             "express": "npm:express@5",
@@ -327,6 +365,7 @@ mod tests {
           },
           "https://raw.githubusercontent.com/example/": {
             "https://deno.land/std/": "https://deno.land/std@0.177.0/",
+            "https://example.com/": "https://deno.land/std@0.177.0/",
           },
         },
       })
