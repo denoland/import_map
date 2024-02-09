@@ -105,7 +105,8 @@ pub fn create_synthetic_import_map(
         .strip_suffix('/')
         .unwrap_or(&relative_to_base_dir)
     );
-    let Value::Object(mut import_map_obj) = child_config.import_map_value else {
+    let Value::Object(mut import_map_obj) = child_config.import_map_value
+    else {
       continue;
     };
 
@@ -122,8 +123,7 @@ pub fn create_synthetic_import_map(
             Some(v) => format!("./{}", v),
             None => value_str.to_string(),
           };
-        member_scope
-          .insert(key, Value::String(value_relative_to_base_dir));
+        member_scope.insert(key, Value::String(value_relative_to_base_dir));
       }
     }
     combine_object(
@@ -138,21 +138,13 @@ pub fn create_synthetic_import_map(
         // "/foo/" and coming from "bar" workspace member. So we need to
         // prepend the member name to the scope.
         let Ok(scope_name_dir) = member_dir.join(&scope_name) else {
-          combine_object(
-            &mut synth_import_map_scopes,
-            scope_name,
-            scope_obj,
-          );
+          combine_object(&mut synth_import_map_scopes, scope_name, scope_obj);
           continue; // not a file specifier
         };
         let Some(relative_to_base_dir) =
           base_import_map_dir.make_relative(&scope_name_dir)
         else {
-          combine_object(
-            &mut synth_import_map_scopes,
-            scope_name,
-            scope_obj,
-          );
+          combine_object(&mut synth_import_map_scopes, scope_name, scope_obj);
           continue; // not a file specifier
         };
         let new_key = format!(
@@ -176,8 +168,7 @@ pub fn create_synthetic_import_map(
                 Some(v) => format!("./{}", v),
                 None => value_str.to_string(),
               };
-            new_scope
-              .insert(key, Value::String(value_relative_to_base_dir));
+            new_scope.insert(key, Value::String(value_relative_to_base_dir));
           }
         }
         combine_object(
