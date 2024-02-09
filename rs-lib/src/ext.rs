@@ -123,7 +123,7 @@ pub fn create_synthetic_import_map(
             None => value_str.to_string(),
           };
         member_scope
-          .insert(key.to_string(), Value::String(value_relative_to_base_dir));
+          .insert(key, Value::String(value_relative_to_base_dir));
       }
     }
     combine_object(
@@ -163,20 +163,22 @@ pub fn create_synthetic_import_map(
         );
 
         let mut new_scope = serde_json::Map::new();
-        for (key, value) in scope_obj.as_object().unwrap() {
-          let Some(value_str) = value.as_str() else {
-            continue;
-          };
-          let value_url = member_dir.join(value_str).unwrap();
-          // `make_relative` can fail here if the provided value is already
-          // a fully resolved URL.
-          let value_relative_to_base_dir =
-            match base_import_map_dir.make_relative(&value_url) {
-              Some(v) => format!("./{}", v),
-              None => value_str.to_string(),
+        if let Value::Object(scope_obj) = scope_obj {
+          for (key, value) in scope_obj {
+            let Some(value_str) = value.as_str() else {
+              continue;
             };
-          new_scope
-            .insert(key.to_string(), Value::String(value_relative_to_base_dir));
+            let value_url = member_dir.join(value_str).unwrap();
+            // `make_relative` can fail here if the provided value is already
+            // a fully resolved URL.
+            let value_relative_to_base_dir =
+              match base_import_map_dir.make_relative(&value_url) {
+                Some(v) => format!("./{}", v),
+                None => value_str.to_string(),
+              };
+            new_scope
+              .insert(key, Value::String(value_relative_to_base_dir));
+          }
         }
         combine_object(
           &mut synth_import_map_scopes,
