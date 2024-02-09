@@ -122,9 +122,16 @@ pub fn create_synthetic_import_map(
         // Keys for scopes need to be processed - they might look like
         // "/foo/" and coming from "bar" workspace member. So we need to
         // prepend the member name to the scope.
-        let scope_name_dir = member_dir.join(scope_name).unwrap();
-        let relative_to_base_dir =
-          base_import_map_dir.make_relative(&scope_name_dir).unwrap();
+        let Ok(scope_name_dir) = member_dir.join(scope_name) else {
+          synth_import_map_scopes.insert(scope_name.clone(), scope_obj.clone());
+          continue; // ignore
+        };
+        let Some(relative_to_base_dir) =
+          base_import_map_dir.make_relative(&scope_name_dir)
+        else {
+          synth_import_map_scopes.insert(scope_name.clone(), scope_obj.clone());
+          continue; // not a file specifier
+        };
         let new_key = format!(
           "./{}/",
           relative_to_base_dir
@@ -250,7 +257,11 @@ mod tests {
           "@std/assert/": "deno:/@std/assert/",
           "express": "npm:express@4"
         },
-        "scopes": {}
+        "scopes": {
+          "https://raw.githubusercontent.com/example/": {
+            "https://deno.land/std/": "https://deno.land/std@0.177.0/"
+          }
+        }
       }),
     };
     let children = vec![
@@ -264,6 +275,9 @@ mod tests {
           "scopes": {
             "./fizz/": {
               "express": "npm:express@5",
+            },
+            "https://raw.githubusercontent.com/other/": {
+              "https://deno.land/std/": "https://deno.land/std@0.177.0/"
             }
           },
         }),
@@ -307,7 +321,13 @@ mod tests {
           },
           "./bar/fizz/": {
             "foo/": "./bar/buzz/"
-          }
+          },
+          "https://raw.githubusercontent.com/other/": {
+            "https://deno.land/std/": "https://deno.land/std@0.177.0/"
+          },
+          "https://raw.githubusercontent.com/example/": {
+            "https://deno.land/std/": "https://deno.land/std@0.177.0/",
+          },
         },
       })
     );
