@@ -369,7 +369,7 @@ mod tests {
           },
           "https://raw.githubusercontent.com/example/": {
             "https://deno.land/std/": "https://deno.land/std@0.177.0/",
-              "https://example.com/": "https://deno.land/std@0.177.0/",
+            "https://example.com/": "https://deno.land/std@0.177.0/",
           },
         },
       })
