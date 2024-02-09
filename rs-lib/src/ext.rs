@@ -124,7 +124,7 @@ pub fn create_synthetic_import_map(
         // prepend the member name to the scope.
         let Ok(scope_name_dir) = member_dir.join(scope_name) else {
           synth_import_map_scopes.insert(scope_name.clone(), scope_obj.clone());
-          continue; // ignore
+          continue; // not a file specifier
         };
         let Some(relative_to_base_dir) =
           base_import_map_dir.make_relative(&scope_name_dir)
