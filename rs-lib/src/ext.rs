@@ -114,8 +114,11 @@ pub fn create_synthetic_import_map(
           .insert(key.to_string(), Value::String(value_relative_to_base_dir));
       }
     }
-    synth_import_map_scopes
-      .insert(member_prefix.to_string(), Value::Object(member_scope));
+    combine_object(
+      &mut synth_import_map_scopes,
+      &member_prefix,
+      Value::Object(member_scope.clone()),
+    );
 
     if let Some(scopes) = child_config.import_map_value.get("scopes") {
       for (scope_name, scope_obj) in scopes.as_object().unwrap() {
@@ -123,13 +126,21 @@ pub fn create_synthetic_import_map(
         // "/foo/" and coming from "bar" workspace member. So we need to
         // prepend the member name to the scope.
         let Ok(scope_name_dir) = member_dir.join(scope_name) else {
-          synth_import_map_scopes.insert(scope_name.clone(), scope_obj.clone());
+          combine_object(
+            &mut synth_import_map_scopes,
+            scope_name,
+            scope_obj.clone(),
+          );
           continue; // not a file specifier
         };
         let Some(relative_to_base_dir) =
           base_import_map_dir.make_relative(&scope_name_dir)
         else {
-          synth_import_map_scopes.insert(scope_name.clone(), scope_obj.clone());
+          combine_object(
+            &mut synth_import_map_scopes,
+            scope_name,
+            scope_obj.clone(),
+          );
           continue; // not a file specifier
         };
         let new_key = format!(
@@ -155,7 +166,11 @@ pub fn create_synthetic_import_map(
           new_scope
             .insert(key.to_string(), Value::String(value_relative_to_base_dir));
         }
-        synth_import_map_scopes.insert(new_key, Value::Object(new_scope));
+        combine_object(
+          &mut synth_import_map_scopes,
+          &new_key,
+          Value::Object(new_scope),
+        );
       }
     }
   }
@@ -169,7 +184,7 @@ pub fn create_synthetic_import_map(
   if let Some(base_scopes) = base_import_map.import_map_value.get("scopes") {
     let base_scopes_obj = base_scopes.as_object().unwrap();
     for (key, value) in base_scopes_obj.iter() {
-      synth_import_map_scopes.insert(key.to_owned(), value.to_owned());
+      combine_object(&mut synth_import_map_scopes, key, value.clone());
     }
   }
 
@@ -186,6 +201,26 @@ pub fn create_synthetic_import_map(
     Some((base_import_map.base_url, import_map))
   } else {
     None
+  }
+}
+
+fn combine_object(
+  base: &mut serde_json::Map<String, Value>,
+  property_name: &str,
+  addition: serde_json::Value,
+) {
+  if let Some(base_property) = base.get_mut(property_name) {
+    if let Some(base_property_obj) = base_property.as_object_mut() {
+      if let Value::Object(addition) = addition {
+        for (key, value) in addition.into_iter() {
+          combine_object(base_property_obj, &key, value);
+        }
+      }
+    } else {
+      base.insert(property_name.to_string(), addition);
+    }
+  } else {
+    base.insert(property_name.to_string(), addition);
   }
 }
 
@@ -260,6 +295,9 @@ mod tests {
         "scopes": {
           "https://raw.githubusercontent.com/example/": {
             "https://deno.land/std/": "https://deno.land/std@0.177.0/"
+          },
+          "./foo/": {
+            "root": "./other.js"
           }
         }
       }),
@@ -275,6 +313,9 @@ mod tests {
           "scopes": {
             "./fizz/": {
               "express": "npm:express@5",
+            },
+            "https://raw.githubusercontent.com/example/": {
+              "https://example.com/": "https://deno.land/std@0.177.0/"
             },
             "https://raw.githubusercontent.com/other/": {
               "https://deno.land/std/": "https://deno.land/std@0.177.0/"
@@ -310,7 +351,8 @@ mod tests {
         "scopes": {
           "./foo/": {
             "~/": "./foo/",
-            "foo/": "./foo/bar/"
+            "foo/": "./foo/bar/",
+            "root": "./other.js",
           },
           "./foo/fizz/": {
             "express": "npm:express@5",
@@ -327,6 +369,7 @@ mod tests {
           },
           "https://raw.githubusercontent.com/example/": {
             "https://deno.land/std/": "https://deno.land/std@0.177.0/",
+              "https://example.com/": "https://deno.land/std@0.177.0/",
           },
         },
       })
