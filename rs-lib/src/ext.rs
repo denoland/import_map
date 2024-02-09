@@ -76,7 +76,7 @@ fn pop_last_segment(url: &Url) -> Url {
 }
 
 pub fn create_synthetic_import_map(
-  base_import_map: ImportMapConfig,
+  mut base_import_map: ImportMapConfig,
   children_import_maps: Vec<ImportMapConfig>,
 ) -> Option<(Url, Value)> {
   let mut synth_import_map_imports = serde_json::Map::new();
@@ -84,7 +84,16 @@ pub fn create_synthetic_import_map(
 
   let base_import_map_dir = pop_last_segment(&base_import_map.base_url);
 
-  for child_config in children_import_maps.iter() {
+  if let Value::Object(base_value) = &mut base_import_map.import_map_value {
+    if let Some(Value::Object(base_imports)) = base_value.remove("imports") {
+      synth_import_map_imports = base_imports;
+    }
+    if let Some(Value::Object(base_scopes)) = base_value.remove("scopes") {
+      synth_import_map_scopes = base_scopes;
+    }
+  }
+
+  for child_config in children_import_maps.into_iter() {
     let mut member_scope = serde_json::Map::new();
 
     let member_dir = pop_last_segment(&child_config.base_url);
@@ -96,9 +105,12 @@ pub fn create_synthetic_import_map(
         .strip_suffix('/')
         .unwrap_or(&relative_to_base_dir)
     );
+    let Value::Object(mut import_map_obj) = child_config.import_map_value else {
+      continue;
+    };
 
-    if let Some(imports) = child_config.import_map_value.get("imports") {
-      for (key, value) in imports.as_object().unwrap() {
+    if let Some(Value::Object(imports)) = import_map_obj.remove("imports") {
+      for (key, value) in imports {
         let Some(value_str) = value.as_str() else {
           continue;
         };
@@ -116,20 +128,20 @@ pub fn create_synthetic_import_map(
     }
     combine_object(
       &mut synth_import_map_scopes,
-      &member_prefix,
+      member_prefix,
       Value::Object(member_scope.clone()),
     );
 
-    if let Some(scopes) = child_config.import_map_value.get("scopes") {
-      for (scope_name, scope_obj) in scopes.as_object().unwrap() {
+    if let Some(Value::Object(scopes)) = import_map_obj.remove("scopes") {
+      for (scope_name, scope_obj) in scopes {
         // Keys for scopes need to be processed - they might look like
         // "/foo/" and coming from "bar" workspace member. So we need to
         // prepend the member name to the scope.
-        let Ok(scope_name_dir) = member_dir.join(scope_name) else {
+        let Ok(scope_name_dir) = member_dir.join(&scope_name) else {
           combine_object(
             &mut synth_import_map_scopes,
             scope_name,
-            scope_obj.clone(),
+            scope_obj,
           );
           continue; // not a file specifier
         };
@@ -139,7 +151,7 @@ pub fn create_synthetic_import_map(
           combine_object(
             &mut synth_import_map_scopes,
             scope_name,
-            scope_obj.clone(),
+            scope_obj,
           );
           continue; // not a file specifier
         };
@@ -168,23 +180,10 @@ pub fn create_synthetic_import_map(
         }
         combine_object(
           &mut synth_import_map_scopes,
-          &new_key,
+          new_key,
           Value::Object(new_scope),
         );
       }
-    }
-  }
-
-  if let Some(base_imports) = base_import_map.import_map_value.get("imports") {
-    let base_imports_obj = base_imports.as_object().unwrap();
-    for (key, value) in base_imports_obj.iter() {
-      synth_import_map_imports.insert(key.to_owned(), value.to_owned());
-    }
-  }
-  if let Some(base_scopes) = base_import_map.import_map_value.get("scopes") {
-    let base_scopes_obj = base_scopes.as_object().unwrap();
-    for (key, value) in base_scopes_obj.iter() {
-      combine_object(&mut synth_import_map_scopes, key, value.clone());
     }
   }
 
@@ -206,21 +205,21 @@ pub fn create_synthetic_import_map(
 
 fn combine_object(
   base: &mut serde_json::Map<String, Value>,
-  property_name: &str,
+  property_name: String,
   addition: serde_json::Value,
 ) {
-  if let Some(base_property) = base.get_mut(property_name) {
+  if let Some(base_property) = base.get_mut(&property_name) {
     if let Some(base_property_obj) = base_property.as_object_mut() {
       if let Value::Object(addition) = addition {
         for (key, value) in addition.into_iter() {
-          combine_object(base_property_obj, &key, value);
+          combine_object(base_property_obj, key, value);
         }
       }
     } else {
-      base.insert(property_name.to_string(), addition);
+      base.insert(property_name, addition);
     }
   } else {
-    base.insert(property_name.to_string(), addition);
+    base.insert(property_name, addition);
   }
 }
 
@@ -297,7 +296,9 @@ mod tests {
             "https://deno.land/std/": "https://deno.land/std@0.177.0/"
           },
           "./foo/": {
-            "root": "./other.js"
+            "root": "./other.js",
+            // this will be overwritten by the child
+            "override": "./overwritten.js"
           }
         }
       }),
@@ -308,7 +309,8 @@ mod tests {
         import_map_value: json!({
           "imports": {
             "~/": "./",
-            "foo/": "./bar/"
+            "foo/": "./bar/",
+            "override": "./overwritten.js"
           },
           "scopes": {
             "./fizz/": {
@@ -352,6 +354,7 @@ mod tests {
           "./foo/": {
             "~/": "./foo/",
             "foo/": "./foo/bar/",
+            "override": "./foo/overwritten.js",
             "root": "./other.js",
           },
           "./foo/fizz/": {
