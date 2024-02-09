@@ -53,7 +53,7 @@ dependencies = [
 
 [[package]]
 name = "import_map"
-version = "0.18.4"
+version = "0.18.5"
 dependencies = [
  "indexmap",
  "log",
@@ -67,7 +67,7 @@ dependencies = [
 
 [[package]]
 name = "import_map_wasm"
-version = "0.17.4"
+version = "0.17.5"
 dependencies = [
  "import_map",
  "js-sys",
