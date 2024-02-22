@@ -610,14 +610,14 @@ pub fn parse_from_json_with_options(
 }
 
 pub fn parse_from_value(
-  base_url: &Url,
+  base_url: Url,
   json_value: Value,
 ) -> Result<ImportMapWithDiagnostics, ImportMapError> {
   parse_from_value_with_options(base_url, json_value, Default::default())
 }
 
 pub fn parse_from_value_with_options(
-  base_url: &Url,
+  base_url: Url,
   json_value: Value,
   options: ImportMapOptions,
 ) -> Result<ImportMapWithDiagnostics, ImportMapError> {
@@ -625,13 +625,13 @@ pub fn parse_from_value_with_options(
   let (unresolved_imports, unresolved_scopes) =
     parse_value(json_value, &options, &mut diagnostics)?;
   let imports =
-    parse_specifier_map(unresolved_imports, base_url, &mut diagnostics);
-  let scopes = parse_scope_map(unresolved_scopes, base_url, &mut diagnostics)?;
+    parse_specifier_map(unresolved_imports, &base_url, &mut diagnostics);
+  let scopes = parse_scope_map(unresolved_scopes, &base_url, &mut diagnostics)?;
 
   Ok(ImportMapWithDiagnostics {
     diagnostics,
     import_map: ImportMap {
-      base_url: base_url.clone(),
+      base_url,
       imports,
       scopes,
     },
