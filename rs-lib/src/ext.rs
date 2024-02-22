@@ -274,8 +274,7 @@ mod tests {
         }),
       },
     ];
-    let (url, value) =
-      create_synthetic_import_map(base_import_map, children);
+    let (url, value) = create_synthetic_import_map(base_import_map, children);
     assert_eq!(url.as_str(), "file:///import_map.json");
     assert_eq!(
       value,
@@ -354,8 +353,7 @@ mod tests {
         }),
       },
     ];
-    let (url, value) =
-      create_synthetic_import_map(base_import_map, children);
+    let (url, value) = create_synthetic_import_map(base_import_map, children);
     assert_eq!(url.as_str(), "file:///import_map.json");
     assert_eq!(
       value,
