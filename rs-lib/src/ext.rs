@@ -22,21 +22,21 @@ pub fn expand_import_map_value(import_map: Value) -> Value {
       Value::Object(expand_imports(imports)),
     );
   }
-  if let Some(scope) = import_map.remove("scopes") {
-    match scope {
-      Value::Object(scope) => {
-        let mut expanded_scopes = serde_json::Map::with_capacity(scope.len());
-        for (key, value) in scope {
-          let expanded_value = match value {
-            Value::Object(value) => Value::Object(expand_imports(&value)),
-            _ => value,
+  if let Some(scopes) = import_map.remove("scopes") {
+    match scopes {
+      Value::Object(scopes) => {
+        let mut expanded_scopes = serde_json::Map::with_capacity(scopes.len());
+        for (key, imports) in scopes {
+          let imports = match imports {
+            Value::Object(imports) => Value::Object(expand_imports(&imports)),
+            _ => imports,
           };
-          expanded_scopes.insert(key, expanded_value);
+          expanded_scopes.insert(key, imports);
         }
         import_map.insert("scopes".to_string(), Value::Object(expanded_scopes));
       }
       _ => {
-        import_map.insert("scopes".to_string(), scope);
+        import_map.insert("scopes".to_string(), scopes);
       }
     }
   }
