@@ -103,7 +103,7 @@ fn pop_last_segment(url: &Url) -> Url {
 pub fn create_synthetic_import_map(
   mut base_import_map: ImportMapConfig,
   children_import_maps: Vec<ImportMapConfig>,
-) -> Option<(Url, Value)> {
+) -> (Url, Value) {
   let mut synth_import_map_imports = serde_json::Map::new();
   let mut synth_import_map_scopes = serde_json::Map::new();
 
@@ -214,11 +214,7 @@ pub fn create_synthetic_import_map(
     import_map["scopes"] = Value::Object(synth_import_map_scopes);
   }
 
-  if !import_map.as_object().unwrap().is_empty() {
-    Some((base_import_map.base_url, import_map))
-  } else {
-    None
-  }
+  (base_import_map.base_url, import_map)
 }
 
 fn combine_object(
@@ -278,8 +274,7 @@ mod tests {
         }),
       },
     ];
-    let (url, value) =
-      create_synthetic_import_map(base_import_map, children).unwrap();
+    let (url, value) = create_synthetic_import_map(base_import_map, children);
     assert_eq!(url.as_str(), "file:///import_map.json");
     assert_eq!(
       value,
@@ -358,8 +353,7 @@ mod tests {
         }),
       },
     ];
-    let (url, value) =
-      create_synthetic_import_map(base_import_map, children).unwrap();
+    let (url, value) = create_synthetic_import_map(base_import_map, children);
     assert_eq!(url.as_str(), "file:///import_map.json");
     assert_eq!(
       value,
