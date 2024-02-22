@@ -643,6 +643,23 @@ fn parse_json(
   options: &ImportMapOptions,
   diagnostics: &mut Vec<ImportMapDiagnostic>,
 ) -> Result<(UnresolvedSpecifierMap, UnresolvedScopesMap), ImportMapError> {
+  let v: Value = match serde_json::from_str(json_string) {
+    Ok(v) => v,
+    Err(err) => {
+      return Err(ImportMapError::Other(format!(
+        "Unable to parse import map JSON: {}",
+        err,
+      )));
+    }
+  };
+  parse_value(v, options, diagnostics)
+}
+
+fn parse_value(
+  v: Value,
+  options: &ImportMapOptions,
+  diagnostics: &mut Vec<ImportMapDiagnostic>,
+) -> Result<(UnresolvedSpecifierMap, UnresolvedScopesMap), ImportMapError> {
   fn maybe_expand_imports(value: Value, options: &ImportMapOptions) -> Value {
     if options.expand_imports {
       #[cfg(feature = "ext")]
@@ -662,24 +679,7 @@ fn parse_json(
     }
   }
 
-  let v: Value = match serde_json::from_str(json_string) {
-    Ok(v) => v,
-    Err(err) => {
-      return Err(ImportMapError::Other(format!(
-        "Unable to parse import map JSON: {}",
-        err,
-      )));
-    }
-  };
-  let v = maybe_expand_imports(v, options);
-  parse_value(v, options, diagnostics)
-}
-
-fn parse_value(
-  mut v: Value,
-  options: &ImportMapOptions,
-  diagnostics: &mut Vec<ImportMapDiagnostic>,
-) -> Result<(UnresolvedSpecifierMap, UnresolvedScopesMap), ImportMapError> {
+  let mut v = maybe_expand_imports(v, options);
   match v {
     Value::Object(_) => {}
     _ => {
