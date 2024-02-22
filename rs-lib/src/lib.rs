@@ -1130,6 +1130,7 @@ fn resolve_imports_match(
 #[cfg(test)]
 mod test {
   use super::*;
+  use pretty_assertions::assert_eq;
 
   #[test]
   fn npm_specifiers() {
@@ -1221,7 +1222,7 @@ mod test {
       "@foo": "jsr:@foo",
       "express": "npm:express@4",
       "foo": "https://example.com/foo/bar"
-    },
+    }
   }
 }"#;
     let im = parse_from_json_with_options(
@@ -1234,29 +1235,30 @@ mod test {
     )
     .unwrap();
     assert_eq!(
-      serde_json::to_value(im.import_map).unwrap(),
-      serde_json::json!({
-        "imports": {
-          "@std": "jsr:/@std",
-          "@std/": "jsr:/@std/",
-          "@foo": "jsr:@foo",
-          "@foo/": "jsr:/@foo/",
-          "express": "npm:express@4",
-          "express/": "npm:/express@4/",
-          "foo": "https://example.com/foo/bar"
-        },
-        "scopes": {
-          "./folder/": {
-            "@std": "jsr:/@std",
-            "@std/": "jsr:/@std/",
-            "@foo": "jsr:@foo",
-            "@foo/": "jsr:/@foo/",
-            "express": "npm:express@4",
-            "express/": "npm:/express@4/",
-            "foo": "https://example.com/foo/bar"
-          },
-        }
-      })
+      im.import_map.to_json(),
+      r#"{
+  "imports": {
+    "@std": "jsr:/@std",
+    "@std/": "jsr:/@std/",
+    "@foo": "jsr:@foo",
+    "@foo/": "jsr:/@foo/",
+    "express": "npm:express@4",
+    "express/": "npm:/express@4/",
+    "foo": "https://example.com/foo/bar"
+  },
+  "scopes": {
+    "./folder/": {
+      "@std": "jsr:/@std",
+      "@std/": "jsr:/@std/",
+      "@foo": "jsr:@foo",
+      "@foo/": "jsr:/@foo/",
+      "express": "npm:express@4",
+      "express/": "npm:/express@4/",
+      "foo": "https://example.com/foo/bar"
+    }
+  }
+}
+"#,
     );
   }
 

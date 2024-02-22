@@ -412,13 +412,16 @@ mod tests {
     assert_eq!(
       value,
       json!({
-        "@std": "jsr:/@std",
-        "@std/": "jsr:/@std/",
-        "@foo": "jsr:@foo",
-        "@foo/": "jsr:/@foo/",
-        "express": "npm:express@4",
-        "express/": "npm:/express@4/",
-        "foo": "https://example.com/foo/bar"
+        "imports": {
+          "@std": "jsr:/@std",
+          "@std/": "jsr:/@std/",
+          "@foo": "jsr:@foo",
+          "@foo/": "jsr:/@foo/",
+          "express": "npm:express@4",
+          "express/": "npm:/express@4/",
+          "foo": "https://example.com/foo/bar"
+        },
+        "scopes": {}
       })
     );
   }
@@ -436,8 +439,11 @@ mod tests {
     assert_eq!(
       value,
       json!({
-        "express": "npm:express@4",
-        "express/": "npm:/express@4/foo/bar/",
+        "imports": {
+          "express": "npm:express@4",
+          "express/": "npm:/express@4/foo/bar/",
+        },
+        "scopes": {}
       })
     );
   }
