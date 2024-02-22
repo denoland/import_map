@@ -308,6 +308,19 @@ pub struct ImportMapOptions {
   /// `(parsed_address, key, maybe_scope) -> new_address`
   #[allow(clippy::type_complexity)]
   pub address_hook: Option<Box<dyn (Fn(&str, &str, Option<&str>) -> String)>>,
+  /// Whether to expand imports in the import map.
+  ///
+  /// This functionality can be used to modify the import map
+  /// during parsing, by changing the `imports` mapping to expand
+  /// bare specifier imports to provide "directory" imports, eg.:
+  /// - `"express": "npm:express@4` -> `"express/": "npm:/express@4/`
+  /// - `"@std": "jsr:@std` -> `"std@/": "jsr:/@std/`
+  ///
+  /// Only `npm:` and `jsr:` schemes are expanded and if there's already a
+  /// "directory" import, it is not overwritten.
+  ///
+  /// This requires enabling the "ext" cargo feature.
+  pub expand_imports: bool,
 }
 
 impl Debug for ImportMapOptions {
@@ -566,39 +579,8 @@ impl ImportMap {
     }
   }
 
-  /// This function can be used to modify the import map in place,
-  /// by modifying `imports` mapping to expand
-  /// bare specifier imports to provide "directory" imports, eg.:
-  /// - `"express": "npm:express@4` -> `"express/": "npm:/express@4/`
-  /// - `"@std": "jsr:@std` -> `"std@/": "jsr:/@std/`
-  ///
-  /// Only `npm:` and `jsr:` scheme are expanded and if there's already a
-  /// "directory" import, it is not overwritten.
-  #[cfg(feature = "ext")]
-  pub fn ext_expand_imports(&mut self) {
-    use ext::ImportMapConfig;
 
-    let json_str = self.to_json();
-    let json_value = serde_json::from_str(&json_str).unwrap();
-    let expanded_imports = ext::expand_imports(ImportMapConfig {
-      base_url: self.base_url.clone(),
-      import_map_value: json_value,
-    });
-    let expanded_imports_map = expanded_imports.as_object().unwrap();
-    let mut expanded_imports_im =
-      IndexMap::with_capacity(expanded_imports_map.len());
-    for (key, value) in expanded_imports_map {
-      expanded_imports_im
-        .insert(key.to_string(), Some(value.as_str().unwrap().to_string()));
-    }
-    let mut diagnostics = vec![];
-    let imports = parse_specifier_map(
-      expanded_imports_im,
-      &self.base_url,
-      &mut diagnostics,
-    );
-    self.imports = imports;
-  }
+
 }
 
 pub fn parse_from_json(
@@ -664,6 +646,25 @@ fn parse_json(
   options: &ImportMapOptions,
   diagnostics: &mut Vec<ImportMapDiagnostic>,
 ) -> Result<(UnresolvedSpecifierMap, UnresolvedScopesMap), ImportMapError> {
+  fn maybe_expand_imports(value: Value, options: &ImportMapOptions) -> Value {
+    if options.expand_imports {
+      #[cfg(feature = "ext")]
+      {
+        ext::expand_import_map_value(value)
+      }
+      #[cfg(not(feature = "ext"))]
+      {
+        debug_assert!(
+          false,
+          "expand_imports was true, but the \"ext\" feature was not enabled"
+        );
+        value
+      }
+    } else {
+      value
+    }
+  }
+
   let v: Value = match serde_json::from_str(json_string) {
     Ok(v) => v,
     Err(err) => {
@@ -673,6 +674,7 @@ fn parse_json(
       )));
     }
   };
+  let v = maybe_expand_imports(v, options);
   parse_value(v, options, diagnostics)
 }
 
@@ -1216,21 +1218,42 @@ mod test {
     "express": "npm:express@4",
     "foo": "https://example.com/foo/bar"
   },
-  "scopes": {}
+  "scopes": {
+    "./folder/": {
+      "@std": "jsr:/@std",
+      "@foo": "jsr:@foo",
+      "express": "npm:express@4",
+      "foo": "https://example.com/foo/bar"
+    },
+  }
 }"#;
-    let im = parse_from_json(&url, json_string).unwrap();
-    let mut im = im.import_map;
-    im.ext_expand_imports();
+    let im = parse_from_json_with_options(&url, json_string, ImportMapOptions {
+      address_hook: None,
+      expand_imports: true,
+    }).unwrap();
     assert_eq!(
-      serde_json::to_value(&im.imports).unwrap(),
+      serde_json::to_value(im.import_map).unwrap(),
       serde_json::json!({
-        "@std": "jsr:/@std",
-        "@std/": "jsr:/@std/",
-        "@foo": "jsr:@foo",
-        "@foo/": "jsr:/@foo/",
-        "express": "npm:express@4",
-        "express/": "npm:/express@4/",
-        "foo": "https://example.com/foo/bar"
+        "imports": {
+          "@std": "jsr:/@std",
+          "@std/": "jsr:/@std/",
+          "@foo": "jsr:@foo",
+          "@foo/": "jsr:/@foo/",
+          "express": "npm:express@4",
+          "express/": "npm:/express@4/",
+          "foo": "https://example.com/foo/bar"
+        },
+        "scopes": {
+          "./folder/": {
+            "@std": "jsr:/@std",
+            "@std/": "jsr:/@std/",
+            "@foo": "jsr:@foo",
+            "@foo/": "jsr:/@foo/",
+            "express": "npm:express@4",
+            "express/": "npm:/express@4/",
+            "foo": "https://example.com/foo/bar"
+          },
+        }
       })
     );
   }

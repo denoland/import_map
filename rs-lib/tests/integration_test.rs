@@ -697,6 +697,7 @@ fn parse_with_address_hook() {
         }
         address.to_string()
       })),
+      expand_imports: false,
     },
   )
   .unwrap();
