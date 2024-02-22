@@ -680,7 +680,7 @@ pub fn outputs_import_map_as_json_imports_and_scopes() {
 #[test]
 fn parse_with_address_hook() {
   let result = parse_from_value_with_options(
-    &Url::parse("file:///").unwrap(),
+    Url::parse("file:///").unwrap(),
     json!({
       "imports": {
         "preact": "npm:preact",
