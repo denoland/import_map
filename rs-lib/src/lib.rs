@@ -578,9 +578,6 @@ impl ImportMap {
       text.replace('"', "\\\"")
     }
   }
-
-
-
 }
 
 pub fn parse_from_json(
@@ -1227,10 +1224,15 @@ mod test {
     },
   }
 }"#;
-    let im = parse_from_json_with_options(&url, json_string, ImportMapOptions {
-      address_hook: None,
-      expand_imports: true,
-    }).unwrap();
+    let im = parse_from_json_with_options(
+      &url,
+      json_string,
+      ImportMapOptions {
+        address_hook: None,
+        expand_imports: true,
+      },
+    )
+    .unwrap();
     assert_eq!(
       serde_json::to_value(im.import_map).unwrap(),
       serde_json::json!({
