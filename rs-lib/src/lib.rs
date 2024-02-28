@@ -63,21 +63,25 @@ impl fmt::Display for ImportMapDiagnostic {
 
 #[derive(Debug)]
 pub enum ImportMapError {
-  UnmappedBareSpecifier(String, Option<String>),
+  UnmappedBareSpecifier(String, Option<String>, Option<String>),
   Other(String),
 }
 
 impl fmt::Display for ImportMapError {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     match self {
-      ImportMapError::UnmappedBareSpecifier(specifier, maybe_referrer) => write!(
+      ImportMapError::UnmappedBareSpecifier(specifier, maybe_path, maybe_referrer) => write!(
         f,
-        "Relative import path \"{}\" not prefixed with / or ./ or ../ and not in import map{}",
+        "Relative import path \"{}\" not prefixed with / or ./ or ../ and not in import map{}{}",
         specifier,
+        match maybe_path {
+          Some(path) => format!(" at \"{}\"", path),
+          None => String::new(),          
+        },
         match maybe_referrer {
-          Some(referrer) => format!(" from \"{}\"", referrer),
+          Some(referrer) => format!(" called from \"{}\"", referrer),
           None => String::new(),
-        }
+        },
       ),
       ImportMapError::Other(message) => f.pad(message),
     }
@@ -444,6 +448,7 @@ impl ImportMap {
 
     Err(ImportMapError::UnmappedBareSpecifier(
       specifier.to_string(),
+      Some(self.base_url.to_string()),
       Some(referrer.to_string()),
     ))
   }
