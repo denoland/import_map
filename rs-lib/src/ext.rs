@@ -95,9 +95,17 @@ pub struct ImportMapConfig {
 }
 
 fn pop_last_segment(url: &Url) -> Url {
-  let mut path = url.to_file_path().unwrap();
-  path.pop();
-  Url::from_directory_path(path).unwrap()
+  let mut url = url.clone();
+  if let Ok(mut segments) = url.path_segments_mut() {
+    segments.pop();
+  }
+  // seems like a bug in the url crate that poping a path segment
+  // does not maintain the slash separator
+  // https://github.com/servo/rust-url/issues/912
+  if !url.path().ends_with('/') {
+    url.set_path(&format!("{}/", url.path()));
+  }
+  url
 }
 
 pub fn create_synthetic_import_map(
