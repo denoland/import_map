@@ -55,3 +55,26 @@ Deno.test({
     );
   },
 });
+
+Deno.test({
+  name: "ImportMap - resolve() - jsr",
+  async fn() {
+    const importMap = await parseFromJson(
+      "file:///a/import-map.json",
+      {
+        imports: {
+          "@std/assert": "jsr:@std/assert",
+          "@std/testing": "jsr:@std/testing",
+        },
+      },
+    );
+    assertEquals(
+      importMap.resolve("@std/assert", "https://deno.land/x/oak/mod.ts"),
+      "jsr:@std/assert",
+    );
+    assertEquals(
+      importMap.resolve("@std/testing/bdd", "https://deno.land/x/oak/mod.ts"),
+      "jsr:@std/testing/bdd",
+    );
+  },
+});
