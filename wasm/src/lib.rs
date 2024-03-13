@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use import_map::{parse_from_json, ImportMap};
+use import_map::{parse_from_json_with_options, ImportMap, ImportMapOptions};
 use url::Url;
 use wasm_bindgen::prelude::*;
 
@@ -37,7 +37,14 @@ pub fn js_parse_from_json(
 ) -> Result<JsImportMap, JsError> {
   let base_url =
     Url::parse(&base_url).map_err(|err| JsError::new(&err.to_string()))?;
-  parse_from_json(&base_url, &json_string)
-    .map(|map_with_diag| JsImportMap(map_with_diag.import_map))
-    .map_err(|err| JsError::new(&err.to_string()))
+  parse_from_json_with_options(
+    &base_url,
+    &json_string,
+    ImportMapOptions {
+      address_hook: None,
+      expand_imports: true,
+    },
+  )
+  .map(|map_with_diag| JsImportMap(map_with_diag.import_map))
+  .map_err(|err| JsError::new(&err.to_string()))
 }

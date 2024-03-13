@@ -13,7 +13,7 @@ crate-type = ["cdylib"]
 name = "import_map"
 
 [dependencies]
-import_map = { path = "../rs-lib" }
+import_map = { path = "../rs-lib", features = ["ext"] }
 js-sys = "=0.3.64"
 url = "2.3.1"
 wasm-bindgen = { version = "=0.2.87", features = ["serde-serialize"] }

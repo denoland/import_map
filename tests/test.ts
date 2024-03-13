@@ -74,7 +74,7 @@ Deno.test({
     );
     assertEquals(
       importMap.resolve("@std/testing/bdd", "https://deno.land/x/oak/mod.ts"),
-      "jsr:@std/testing/bdd",
+      "jsr:/@std/testing/bdd",
     );
   },
 });
