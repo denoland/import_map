@@ -1162,6 +1162,9 @@ impl fmt::Display for ResolveImportError {
 
 /// Given a specifier string and a referring module specifier, try to resolve
 /// the target module specifier, erroring if it cannot be resolved.
+///
+/// This function is useful for resolving specifiers in situations without an
+/// import map.
 pub fn resolve_import(
   specifier: &str,
   referrer: &Url,
