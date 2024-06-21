@@ -1138,7 +1138,6 @@ pub enum ResolveImportError {
   },
 }
 
-
 impl Error for ResolveImportError {
   fn source(&self) -> Option<&(dyn Error + 'static)> {
     match self {
@@ -1191,11 +1190,9 @@ pub fn resolve_import(
 
     // 3. Return the result of applying the URL parser to specifier with base
     //    URL as the base URL.
-    Err(url::ParseError::RelativeUrlWithoutBase) => {
-      referrer
-        .join(specifier)
-        .map_err(ResolveImportError::InvalidUrl)
-    }
+    Err(url::ParseError::RelativeUrlWithoutBase) => referrer
+      .join(specifier)
+      .map_err(ResolveImportError::InvalidUrl),
 
     // If parsing the specifier as a URL failed for a different reason than
     // it being relative, always return the original error. We don't want to
