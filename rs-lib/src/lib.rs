@@ -1130,7 +1130,6 @@ fn resolve_imports_match(
   Ok(None)
 }
 
-
 #[cfg(test)]
 mod test {
   use super::*;
