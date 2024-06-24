@@ -1119,8 +1119,6 @@ fn resolve_imports_match(
     return Ok(Some(url));
   }
 
-  log::debug!("Backtrace: {}", std::backtrace::Backtrace::force_capture());
-
   #[cfg(feature = "logging")]
   log::debug!(
     "Specifier {:?} was not mapped in import map.",
