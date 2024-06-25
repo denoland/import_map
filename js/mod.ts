@@ -41,6 +41,7 @@ export interface ImportMapJson {
 export async function parseFromJson(
   baseUrl: string | URL,
   json: string | ImportMapJson,
+  opts?: { expandImports?: boolean },
 ): Promise<ImportMap> {
   wasm = wasm ?? await instantiate();
   if (baseUrl instanceof URL) {
@@ -49,6 +50,6 @@ export async function parseFromJson(
   if (typeof json === "object") {
     json = JSON.stringify(json);
   }
-  const inner = wasm.parseFromJson(baseUrl, json);
+  const inner = wasm.parseFromJson(baseUrl, json, opts?.expandImports ?? false);
   return new ImportMap(inner);
 }
