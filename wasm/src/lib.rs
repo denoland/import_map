@@ -34,6 +34,7 @@ impl JsImportMap {
 pub fn js_parse_from_json(
   base_url: String,
   json_string: String,
+  expand_imports: bool,
 ) -> Result<JsImportMap, JsError> {
   let base_url =
     Url::parse(&base_url).map_err(|err| JsError::new(&err.to_string()))?;
@@ -42,7 +43,7 @@ pub fn js_parse_from_json(
     &json_string,
     ImportMapOptions {
       address_hook: None,
-      expand_imports: true,
+      expand_imports,
     },
   )
   .map(|map_with_diag| JsImportMap(map_with_diag.import_map))
