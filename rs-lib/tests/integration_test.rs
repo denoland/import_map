@@ -360,10 +360,8 @@ fn lookup_scopes() {
       }
     }
   }"#;
-  let result = parse_from_json(
-    Url::parse("file:///a/import-map.json").unwrap(),
-    json_map,
-  );
+  let result =
+    parse_from_json(Url::parse("file:///a/import-map.json").unwrap(), json_map);
   assert!(result.is_ok());
   let ImportMapWithDiagnostics {
     diagnostics,
