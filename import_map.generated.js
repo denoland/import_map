@@ -1,7 +1,7 @@
 // @generated file from wasmbuild -- do not edit
 // deno-lint-ignore-file
 // deno-fmt-ignore-file
-// source-hash: 1e218f64f69588ea9cf6499889e062dac3570f26
+// source-hash: 5f94d55aaad8ab93fa8298c195f87309cfb2e2ad
 let wasm;
 
 const cachedTextDecoder = typeof TextDecoder !== "undefined"
@@ -121,9 +121,10 @@ function takeObject(idx) {
 /**
  * @param {string} base_url
  * @param {string} json_string
+ * @param {boolean} expand_imports
  * @returns {JsImportMap}
  */
-export function parseFromJson(base_url, json_string) {
+export function parseFromJson(base_url, json_string, expand_imports) {
   try {
     const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
     const ptr0 = passStringToWasm0(
@@ -138,7 +139,7 @@ export function parseFromJson(base_url, json_string) {
       wasm.__wbindgen_realloc,
     );
     const len1 = WASM_VECTOR_LEN;
-    wasm.parseFromJson(retptr, ptr0, len0, ptr1, len1);
+    wasm.parseFromJson(retptr, ptr0, len0, ptr1, len1, expand_imports);
     var r0 = getInt32Memory0()[retptr / 4 + 0];
     var r1 = getInt32Memory0()[retptr / 4 + 1];
     var r2 = getInt32Memory0()[retptr / 4 + 2];
