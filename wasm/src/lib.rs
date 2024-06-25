@@ -39,7 +39,7 @@ pub fn js_parse_from_json(
   let base_url =
     Url::parse(&base_url).map_err(|err| JsError::new(&err.to_string()))?;
   parse_from_json_with_options(
-    &base_url,
+    base_url,
     &json_string,
     ImportMapOptions {
       address_hook: None,

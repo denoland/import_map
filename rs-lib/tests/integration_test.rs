@@ -188,7 +188,7 @@ fn run_import_map_test_cases(tests: Vec<ImportMapTestCase>) {
         base_url,
       } => {
         let import_map =
-          parse_from_json(&test.import_map_base_url, &test.import_map)
+          parse_from_json(test.import_map_base_url, &test.import_map)
             .unwrap()
             .import_map;
         let maybe_resolved = import_map
@@ -201,11 +201,11 @@ fn run_import_map_test_cases(tests: Vec<ImportMapTestCase>) {
         expected_import_map,
       } => {
         if matches!(expected_import_map, Value::Null) {
-          assert!(parse_from_json(&test.import_map_base_url, &test.import_map)
+          assert!(parse_from_json(test.import_map_base_url, &test.import_map)
             .is_err());
         } else {
           let import_map =
-            parse_from_json(&test.import_map_base_url, &test.import_map)
+            parse_from_json(test.import_map_base_url, &test.import_map)
               .unwrap()
               .import_map;
           let import_map_value = serde_json::to_value(import_map).unwrap();
@@ -232,18 +232,18 @@ fn from_json_1() {
   let base_url = Url::parse("https://deno.land").unwrap();
 
   // empty JSON
-  assert!(parse_from_json(&base_url, "{}").is_ok());
+  assert!(parse_from_json(base_url.clone(), "{}").is_ok());
 
   let non_object_strings = vec!["null", "true", "1", "\"foo\"", "[]"];
 
   // invalid JSON
   for non_object in non_object_strings.iter().copied() {
-    assert!(parse_from_json(&base_url, non_object).is_err());
+    assert!(parse_from_json(base_url.clone(), non_object).is_err());
   }
 
   // invalid JSON message test
   assert_eq!(
-    parse_from_json(&base_url, "{\"a\":1,}")
+    parse_from_json(base_url.clone(), "{\"a\":1,}")
       .unwrap_err()
       .to_string(),
     "Unable to parse import map JSON: trailing comma at line 1 column 8",
@@ -252,7 +252,7 @@ fn from_json_1() {
   // invalid schema: 'imports' is non-object
   for non_object in non_object_strings.iter() {
     assert!(parse_from_json(
-      &base_url,
+      base_url.clone(),
       &format!("{{\"imports\": {}}}", non_object),
     )
     .is_err());
@@ -261,7 +261,7 @@ fn from_json_1() {
   // invalid schema: 'scopes' is non-object
   for non_object in non_object_strings {
     assert!(parse_from_json(
-      &base_url,
+      base_url.clone(),
       &format!("{{\"scopes\": {}}}", non_object),
     )
     .is_err());
@@ -278,7 +278,7 @@ fn from_json_2() {
     }
   }"#;
   let result =
-    parse_from_json(&Url::parse("https://deno.land").unwrap(), json_map);
+    parse_from_json(Url::parse("https://deno.land").unwrap(), json_map);
   assert!(result.is_ok());
   let diagnostics = result.unwrap().diagnostics;
   assert_eq!(diagnostics.len(), 2);
@@ -297,7 +297,7 @@ fn from_json_3() {
     }
   }"#;
   let result =
-    parse_from_json(&Url::parse("https://deno.land").unwrap(), json_map);
+    parse_from_json(Url::parse("https://deno.land").unwrap(), json_map);
   assert!(result.is_ok());
   let diagnostics = result.unwrap().diagnostics;
   assert_eq!(diagnostics.len(), 3);
@@ -322,7 +322,7 @@ fn lookup_imports() {
     }
   }"#;
   let result = parse_from_json(
-    &Url::parse("file://C:/a/import-map.json").unwrap(),
+    Url::parse("file://C:/a/import-map.json").unwrap(),
     json_map,
   );
   assert!(result.is_ok());
@@ -360,10 +360,8 @@ fn lookup_scopes() {
       }
     }
   }"#;
-  let result = parse_from_json(
-    &Url::parse("file:///a/import-map.json").unwrap(),
-    json_map,
-  );
+  let result =
+    parse_from_json(Url::parse("file:///a/import-map.json").unwrap(), json_map);
   assert!(result.is_ok());
   let ImportMapWithDiagnostics {
     diagnostics,
@@ -394,7 +392,7 @@ fn invalid_top_level_key() {
     }
   }"#;
   let result =
-    parse_from_json(&Url::parse("https://deno.land").unwrap(), json_map);
+    parse_from_json(Url::parse("https://deno.land").unwrap(), json_map);
   assert!(result.is_ok());
   let diagnostics = result.unwrap().diagnostics;
   assert_eq!(diagnostics.len(), 1);
@@ -414,7 +412,7 @@ fn invalid_scope() {
     }
   }"#;
   let result =
-    parse_from_json(&Url::parse("https://deno.land").unwrap(), json_map);
+    parse_from_json(Url::parse("https://deno.land").unwrap(), json_map);
   assert!(result.is_ok());
   let diagnostics = result.unwrap().diagnostics;
   assert_eq!(diagnostics.len(), 1);
@@ -429,7 +427,7 @@ fn querystring() {
     }
   }"#;
   let import_map =
-    parse_from_json(&Url::parse("https://deno.land").unwrap(), json_map)
+    parse_from_json(Url::parse("https://deno.land").unwrap(), json_map)
       .unwrap()
       .import_map;
 
@@ -480,7 +478,7 @@ fn append_imports() {
     }
   }"#;
   let mut import_map =
-    parse_from_json(&Url::parse("https://deno.land").unwrap(), json_map)
+    parse_from_json(Url::parse("https://deno.land").unwrap(), json_map)
       .unwrap()
       .import_map;
   import_map
@@ -549,7 +547,7 @@ fn append_imports() {
 #[test]
 fn get_or_append_scope_mut() {
   let mut import_map =
-    parse_from_json(&Url::parse("https://deno.land").unwrap(), "{}")
+    parse_from_json(Url::parse("https://deno.land").unwrap(), "{}")
       .unwrap()
       .import_map;
 
@@ -596,7 +594,7 @@ fn import_keys() {
     }
   }"#;
   let import_map =
-    parse_from_json(&Url::parse("https://deno.land").unwrap(), json_map)
+    parse_from_json(Url::parse("https://deno.land").unwrap(), json_map)
       .unwrap()
       .import_map;
   assert_eq!(
@@ -610,7 +608,7 @@ pub fn outputs_import_map_as_json_empty() {
   let json = r#"{
 }
 "#;
-  let import_map = parse_from_json(&Url::parse("file:///dir/").unwrap(), json)
+  let import_map = parse_from_json(Url::parse("file:///dir/").unwrap(), json)
     .unwrap()
     .import_map;
   assert_eq!(import_map.to_json(), json);
@@ -624,7 +622,7 @@ pub fn outputs_import_map_as_json_imports_only() {
   }
 }
 "#;
-  let import_map = parse_from_json(&Url::parse("file:///dir/").unwrap(), json)
+  let import_map = parse_from_json(Url::parse("file:///dir/").unwrap(), json)
     .unwrap()
     .import_map;
   assert_eq!(import_map.to_json(), json);
@@ -641,7 +639,7 @@ pub fn outputs_import_map_as_json_scopes_only() {
   }
 }
 "#;
-  let import_map = parse_from_json(&Url::parse("file:///dir/").unwrap(), json)
+  let import_map = parse_from_json(Url::parse("file:///dir/").unwrap(), json)
     .unwrap()
     .import_map;
   assert_eq!(import_map.to_json(), json);
@@ -671,7 +669,7 @@ pub fn outputs_import_map_as_json_imports_and_scopes() {
   }
 }
 "#;
-  let import_map = parse_from_json(&Url::parse("file:///dir/").unwrap(), json)
+  let import_map = parse_from_json(Url::parse("file:///dir/").unwrap(), json)
     .unwrap()
     .import_map;
   assert_eq!(import_map.to_json(), json);
@@ -719,7 +717,7 @@ fn parse_with_address_hook() {
 #[test]
 fn parse_with_no_double_encode() {
   let result = parse_from_json(
-    &Url::parse("file:///").unwrap(),
+    Url::parse("file:///").unwrap(),
     &json!({
       "imports": {
         "./": "./"
