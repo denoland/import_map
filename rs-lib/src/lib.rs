@@ -1227,7 +1227,7 @@ mod test {
   }
 }"#;
     let im = parse_from_json_with_options(
-      &url,
+      url,
       json_string,
       ImportMapOptions {
         address_hook: None,
