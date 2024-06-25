@@ -95,8 +95,8 @@ Deno.test({
         },
       },
       {
-        expandImports: true
-      }
+        expandImports: true,
+      },
     );
     assertEquals(
       importMap.resolve("@std/testing/bdd", "https://deno.land/x/oak/mod.ts"),
