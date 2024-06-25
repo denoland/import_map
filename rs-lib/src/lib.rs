@@ -12,6 +12,7 @@ use url::Url;
 
 #[cfg(feature = "ext")]
 pub mod ext;
+pub mod specifier;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportMapDiagnostic {
