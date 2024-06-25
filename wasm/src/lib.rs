@@ -37,7 +37,7 @@ pub fn js_parse_from_json(
 ) -> Result<JsImportMap, JsError> {
   let base_url =
     Url::parse(&base_url).map_err(|err| JsError::new(&err.to_string()))?;
-  parse_from_json(&base_url, &json_string)
+  parse_from_json(base_url, &json_string)
     .map(|map_with_diag| JsImportMap(map_with_diag.import_map))
     .map_err(|err| JsError::new(&err.to_string()))
 }

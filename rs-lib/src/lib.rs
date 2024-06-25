@@ -582,14 +582,14 @@ impl ImportMap {
 }
 
 pub fn parse_from_json(
-  base_url: &Url,
+  base_url: Url,
   json_string: &str,
 ) -> Result<ImportMapWithDiagnostics, ImportMapError> {
   parse_from_json_with_options(base_url, json_string, Default::default())
 }
 
 pub fn parse_from_json_with_options(
-  base_url: &Url,
+  base_url: Url,
   json_string: &str,
   options: ImportMapOptions,
 ) -> Result<ImportMapWithDiagnostics, ImportMapError> {
@@ -597,13 +597,13 @@ pub fn parse_from_json_with_options(
   let (unresolved_imports, unresolved_scopes) =
     parse_json(json_string, &options, &mut diagnostics)?;
   let imports =
-    parse_specifier_map(unresolved_imports, base_url, &mut diagnostics);
-  let scopes = parse_scope_map(unresolved_scopes, base_url, &mut diagnostics)?;
+    parse_specifier_map(unresolved_imports, &base_url, &mut diagnostics);
+  let scopes = parse_scope_map(unresolved_scopes, &base_url, &mut diagnostics)?;
 
   Ok(ImportMapWithDiagnostics {
     diagnostics,
     import_map: ImportMap {
-      base_url: base_url.clone(),
+      base_url,
       imports,
       scopes,
     },
@@ -1279,7 +1279,7 @@ mod test {
     }
   }
 }"#;
-    let im = parse_from_json(&url, json_string).unwrap();
+    let im = parse_from_json(url, json_string).unwrap();
     let im = im.import_map;
     let keys = im
       .entries_for_referrer(&Url::parse("file:///folder/main.ts").unwrap())
