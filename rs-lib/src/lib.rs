@@ -449,6 +449,51 @@ impl ImportMap {
     ))
   }
 
+  /// Similar `Self::resolve()`, except:
+  /// - For unmapped bare specifiers it returns `Ok(None)` instead of erroring.
+  /// - For unmapped resolved URLs it returns `Ok(None)` instead of said URL.
+  ///
+  /// This requires enabling the "ext" cargo feature.
+  #[cfg(feature = "ext")]
+  pub fn resolve_if_mapped(
+    &self,
+    specifier: &str,
+    referrer: &Url,
+  ) -> Result<Option<Url>, ImportMapError> {
+    let as_url: Option<Url> = try_url_like_specifier(specifier, referrer);
+    let normalized_specifier = if let Some(url) = as_url.as_ref() {
+      url.to_string()
+    } else {
+      specifier.to_string()
+    };
+
+    let scopes_match = resolve_scopes_match(
+      &self.scopes,
+      &normalized_specifier,
+      as_url.as_ref(),
+      referrer.as_ref(),
+    )?;
+
+    // match found in scopes map
+    if let Some(scopes_match) = scopes_match {
+      return Ok(Some(scopes_match));
+    }
+
+    let imports_match = resolve_imports_match(
+      &self.imports,
+      &normalized_specifier,
+      as_url.as_ref(),
+    )?;
+
+    // match found in import map
+    if let Some(imports_match) = imports_match {
+      return Ok(Some(imports_match));
+    }
+
+    // The specifier was able to be turned into a URL, but wasn't remapped into anything.
+    Ok(None)
+  }
+
   pub fn imports(&self) -> &SpecifierMap {
     &self.imports
   }
@@ -1296,5 +1341,79 @@ mod test {
       .map(|e| e.raw_key)
       .collect::<Vec<_>>();
     assert_eq!(keys, ["foo"]);
+  }
+
+  #[test]
+  #[cfg(feature = "ext")]
+  fn ext_resolve_if_mapped() {
+    let im = parse_from_value(
+      Url::parse("file:///deno.json").unwrap(),
+      serde_json::json!({
+        "imports": {
+          "foo": "./file1.js",
+          "./foo": "./file2.js",
+        },
+        "scopes": {
+          "./folder/": {
+            "foo": "./folder/file3.js",
+            "./folder/foo": "./folder/file4.js",
+          },
+        },
+      }),
+    )
+    .unwrap()
+    .import_map;
+    assert_eq!(
+      im.resolve_if_mapped("foo", &Url::parse("file:///main.js").unwrap())
+        .unwrap(),
+      Some(Url::parse("file:///file1.js").unwrap()),
+    );
+    assert_eq!(
+      im.resolve_if_mapped("./foo", &Url::parse("file:///main.js").unwrap())
+        .unwrap(),
+      Some(Url::parse("file:///file2.js").unwrap()),
+    );
+    assert_eq!(
+      im.resolve_if_mapped("bar", &Url::parse("file:///main.js").unwrap())
+        .unwrap(),
+      None,
+    );
+    assert_eq!(
+      im.resolve_if_mapped("./bar", &Url::parse("file:///main.js").unwrap())
+        .unwrap(),
+      None,
+    );
+    assert_eq!(
+      im.resolve_if_mapped(
+        "foo",
+        &Url::parse("file:///folder/main.js").unwrap()
+      )
+      .unwrap(),
+      Some(Url::parse("file:///folder/file3.js").unwrap()),
+    );
+    assert_eq!(
+      im.resolve_if_mapped(
+        "./foo",
+        &Url::parse("file:///folder/main.js").unwrap()
+      )
+      .unwrap(),
+      Some(Url::parse("file:///folder/file4.js").unwrap()),
+    );
+    assert_eq!(
+      im.resolve_if_mapped(
+        "bar",
+        &Url::parse("file:///folder/main.js").unwrap()
+      )
+      .unwrap(),
+      None,
+    );
+    assert_eq!(
+      im.resolve_if_mapped(
+        "./bar",
+        &Url::parse("file:///folder/main.js").unwrap()
+      )
+      .unwrap(),
+      None,
+    );
   }
 }
