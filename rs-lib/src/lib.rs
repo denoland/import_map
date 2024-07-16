@@ -1128,6 +1128,55 @@ fn resolve_imports_match(
   Ok(None)
 }
 
+#[cfg(feature = "ext")]
+pub(crate) fn import_map_list_resolve<'a>(
+  import_maps: impl IntoIterator<Item = &'a ImportMap>,
+  specifier: &str,
+  referrer: &Url,
+) -> Result<Url, ImportMapError> {
+  let as_url: Option<Url> = try_url_like_specifier(specifier, referrer);
+  for import_map in import_maps {
+    let normalized_specifier = if let Some(url) = as_url.as_ref() {
+      url.to_string()
+    } else {
+      specifier.to_string()
+    };
+
+    let scopes_match = resolve_scopes_match(
+      &import_map.scopes,
+      &normalized_specifier,
+      as_url.as_ref(),
+      referrer.as_ref(),
+    )?;
+
+    // match found in scopes map
+    if let Some(scopes_match) = scopes_match {
+      return Ok(scopes_match);
+    }
+
+    let imports_match = resolve_imports_match(
+      &import_map.imports,
+      &normalized_specifier,
+      as_url.as_ref(),
+    )?;
+
+    // match found in import map
+    if let Some(imports_match) = imports_match {
+      return Ok(imports_match);
+    }
+  }
+
+  // The specifier was able to be turned into a URL, but wasn't remapped into anything.
+  if let Some(as_url) = as_url {
+    return Ok(as_url);
+  }
+
+  Err(ImportMapError::UnmappedBareSpecifier(
+    specifier.to_string(),
+    Some(referrer.to_string()),
+  ))
+}
+
 #[cfg(test)]
 mod test {
   use super::*;
@@ -1296,5 +1345,136 @@ mod test {
       .map(|e| e.raw_key)
       .collect::<Vec<_>>();
     assert_eq!(keys, ["foo"]);
+  }
+
+  #[test]
+  #[cfg(feature = "ext")]
+  fn ext_import_map_list_resolve() {
+    let parent_import_map = parse_from_value(
+      Url::parse("file:///deno.json").unwrap(),
+      serde_json::json!({
+        "imports": {
+          "file1": "./file1_parent.js",
+          "file2": "./file2_parent.js",
+        },
+        "scopes": {
+          "./folder/": {
+            "file1": "./folder/file1_parent.js",
+            "file2": "./folder/file2_parent.js",
+          },
+        },
+      }),
+    )
+    .unwrap()
+    .import_map;
+    let child_import_map = parse_from_value(
+      Url::parse("file:///deno.json").unwrap(),
+      serde_json::json!({
+        "imports": {
+          "file2": "./file2_child.js",
+          "file3": "./file3_child.js",
+        },
+        "scopes": {
+          "./folder/": {
+            "file2": "./folder/file2_child.js",
+            "file3": "./folder/file3_child.js",
+          },
+        },
+      }),
+    )
+    .unwrap()
+    .import_map;
+    assert_eq!(
+      ext::import_map_list_resolve(
+        [&child_import_map, &parent_import_map],
+        "file1",
+        &Url::parse("file:///main.js").unwrap(),
+      )
+      .unwrap(),
+      Url::parse("file:///file1_parent.js").unwrap(),
+    );
+    assert_eq!(
+      ext::import_map_list_resolve(
+        [&child_import_map, &parent_import_map],
+        "file1",
+        &Url::parse("file:///folder/main.js").unwrap(),
+      )
+      .unwrap(),
+      Url::parse("file:///folder/file1_parent.js").unwrap(),
+    );
+    assert_eq!(
+      ext::import_map_list_resolve(
+        [&child_import_map, &parent_import_map],
+        "file2",
+        &Url::parse("file:///main.js").unwrap(),
+      )
+      .unwrap(),
+      Url::parse("file:///file2_child.js").unwrap(),
+    );
+    assert_eq!(
+      ext::import_map_list_resolve(
+        [&child_import_map, &parent_import_map],
+        "file2",
+        &Url::parse("file:///folder/main.js").unwrap(),
+      )
+      .unwrap(),
+      Url::parse("file:///folder/file2_child.js").unwrap(),
+    );
+    assert_eq!(
+      ext::import_map_list_resolve(
+        [&child_import_map, &parent_import_map],
+        "file3",
+        &Url::parse("file:///main.js").unwrap(),
+      )
+      .unwrap(),
+      Url::parse("file:///file3_child.js").unwrap(),
+    );
+    assert_eq!(
+      ext::import_map_list_resolve(
+        [&child_import_map, &parent_import_map],
+        "file3",
+        &Url::parse("file:///folder/main.js").unwrap(),
+      )
+      .unwrap(),
+      Url::parse("file:///folder/file3_child.js").unwrap(),
+    );
+    assert_eq!(
+      ext::import_map_list_resolve(
+        [&child_import_map, &parent_import_map],
+        "./file5",
+        &Url::parse("file:///main.js").unwrap(),
+      )
+      .unwrap(),
+      Url::parse("file:///file5").unwrap(),
+    );
+    assert_eq!(
+      ext::import_map_list_resolve(
+        [&child_import_map, &parent_import_map],
+        "./file5",
+        &Url::parse("file:///folder/main.js").unwrap(),
+      )
+      .unwrap(),
+      Url::parse("file:///folder/file5").unwrap(),
+    );
+    assert_eq!(
+      ext::import_map_list_resolve(
+        [&child_import_map, &parent_import_map],
+        "file6",
+        &Url::parse("file:///main.js").unwrap(),
+      )
+      .unwrap_err()
+      .to_string(),
+      r#"Relative import path "file6" not prefixed with / or ./ or ../ and not in import map from "file:///main.js""#.to_string(),
+    );
+    assert_eq!(
+      ext::import_map_list_resolve(
+        [&child_import_map, &parent_import_map],
+        "file6",
+        &Url::parse("file:///folder/main.js").unwrap(),
+      )
+      .unwrap_err()
+      .to_string(),
+      r#"Relative import path "file6" not prefixed with / or ./ or ../ and not in import map from "file:///folder/main.js""#.to_string(),
+    );
   }
 }

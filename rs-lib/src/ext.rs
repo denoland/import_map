@@ -4,6 +4,20 @@ use serde_json::json;
 use serde_json::Value;
 use url::Url;
 
+use crate::import_map_list_resolve as import_map_list_resolve_;
+use crate::ImportMap;
+use crate::ImportMapError;
+
+/// Resolves using a list of import maps. If a matching entry isn't found for
+/// the given specifier and referrer, fallback to the next import map.
+pub fn import_map_list_resolve<'a>(
+  import_maps: impl IntoIterator<Item = &'a ImportMap>,
+  specifier: &str,
+  referrer: &Url,
+) -> Result<Url, ImportMapError> {
+  import_map_list_resolve_(import_maps, specifier, referrer)
+}
+
 /// This function can be used to modify the `imports` and "scopes" mappings
 /// to expand bare specifier imports to provide "directory" imports, eg.:
 /// - `"express": "npm:express@4` -> `"express/": "npm:/express@4/`
