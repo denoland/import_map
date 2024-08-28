@@ -1,38 +1,21 @@
 // Copyright 2018-2024 the Deno authors. MIT license.
 
-use std::error::Error;
-use std::fmt;
-
+use thiserror::Error;
 use url::Url;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum SpecifierError {
+  // don't make this error a source because it's short
+  // and that causes unnecessary verbosity
+  #[error("invalid URL: {0}")]
   InvalidUrl(url::ParseError),
+  #[error(
+    "Relative import path \"{specifier}\" not prefixed with / or ./ or ../"
+  )]
   ImportPrefixMissing {
     specifier: String,
     referrer: Option<Url>,
   },
-}
-
-impl Error for SpecifierError {
-  fn source(&self) -> Option<&(dyn Error + 'static)> {
-    match self {
-      Self::InvalidUrl(ref err) => Some(err),
-      _ => None,
-    }
-  }
-}
-
-impl fmt::Display for SpecifierError {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    match self {
-      Self::InvalidUrl(ref err) => write!(f, "invalid URL: {err}"),
-      Self::ImportPrefixMissing { specifier, .. } => write!(
-        f,
-        "Relative import path \"{specifier}\" not prefixed with / or ./ or ../",
-      ),
-    }
-  }
 }
 
 /// Given a specifier string and a referring module specifier, try to resolve

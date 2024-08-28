@@ -5,9 +5,9 @@ use serde_json::Map;
 use serde_json::Value;
 use std::cmp::Ordering;
 use std::collections::HashSet;
-use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
+use thiserror::Error;
 use url::Url;
 
 #[cfg(feature = "ext")]
@@ -62,30 +62,17 @@ impl fmt::Display for ImportMapDiagnostic {
   }
 }
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum ImportMapError {
+  #[error(
+    "Relative import path \"{}\" not prefixed with / or ./ or ../ and not in import map{}",
+    .0,
+    .1.as_ref().map(|referrer| format!(" from \"{}\"", referrer)).unwrap_or_default(),
+  )]
   UnmappedBareSpecifier(String, Option<String>),
+  #[error("{0}")]
   Other(String),
 }
-
-impl fmt::Display for ImportMapError {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    match self {
-      ImportMapError::UnmappedBareSpecifier(specifier, maybe_referrer) => write!(
-        f,
-        "Relative import path \"{}\" not prefixed with / or ./ or ../ and not in import map{}",
-        specifier,
-        match maybe_referrer {
-          Some(referrer) => format!(" from \"{}\"", referrer),
-          None => String::new(),
-        }
-      ),
-      ImportMapError::Other(message) => f.pad(message),
-    }
-  }
-}
-
-impl Error for ImportMapError {}
 
 // https://url.spec.whatwg.org/#special-scheme
 const SPECIAL_PROTOCOLS: &[&str] =
