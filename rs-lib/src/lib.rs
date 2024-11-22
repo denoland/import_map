@@ -62,16 +62,43 @@ impl fmt::Display for ImportMapDiagnostic {
   }
 }
 
-#[derive(Error, Debug)]
-pub enum ImportMapError {
+#[derive(Debug, boxed_error::Boxed, deno_error::JsError)]
+pub struct ImportMapError(pub Box<ImportMapErrorKind>);
+
+#[derive(Error, Debug, deno_error::JsError)]
+#[class(type)]
+pub enum ImportMapErrorKind {
   #[error(
     "Relative import path \"{}\" not prefixed with / or ./ or ../ and not in import map{}",
     .0,
     .1.as_ref().map(|referrer| format!(" from \"{}\"", referrer)).unwrap_or_default(),
   )]
   UnmappedBareSpecifier(String, Option<String>),
-  #[error("{0}")]
-  Other(String),
+  #[class(inherit)]
+  #[error("Unable to parse import map JSON: {0}")]
+  JsonParse(serde_json::Error),
+  #[error("Import map JSON must be an object")]
+  ImportMapNotObject,
+  #[error("Import map's 'imports' must be an object")]
+  ImportsFieldNotObject,
+  #[error("Import map's 'scopes' must be an object")]
+  ScopesFieldNotObject,
+  #[error("The value for the {0} scope prefix must be an object")]
+  ScopePrefixNotObject(String),
+  #[error("Blocked by null entry for \"{0:?}\"")]
+  BlockedByNullEntry(String),
+  #[error("Failed to resolve the specifier \"{specifier:?}\" as its after-prefix portion \"{after_prefix:?}\" could not be URL-parsed relative to the URL prefix \"{resolution_result}\" mapped to by the prefix \"{specifier_key}\"")]
+  SpecifierResolutionFailure {
+    specifier: String,
+    after_prefix: String,
+    resolution_result: Url,
+    specifier_key: String,
+  },
+  #[error("The specifier \"{specifier:?}\" backtracks above its prefix \"{specifier_key:?}\"")]
+  SpecifierBacktracksAbovePrefix {
+    specifier: String,
+    specifier_key: String,
+  },
 }
 
 // https://url.spec.whatwg.org/#special-scheme
@@ -430,10 +457,13 @@ impl ImportMap {
       return Ok(as_url);
     }
 
-    Err(ImportMapError::UnmappedBareSpecifier(
-      specifier.to_string(),
-      Some(referrer.to_string()),
-    ))
+    Err(
+      ImportMapErrorKind::UnmappedBareSpecifier(
+        specifier.to_string(),
+        Some(referrer.to_string()),
+      )
+      .into_box(),
+    )
   }
 
   pub fn imports(&self) -> &SpecifierMap {
@@ -631,15 +661,8 @@ fn parse_json(
   options: &ImportMapOptions,
   diagnostics: &mut Vec<ImportMapDiagnostic>,
 ) -> Result<(UnresolvedSpecifierMap, UnresolvedScopesMap), ImportMapError> {
-  let v: Value = match serde_json::from_str(json_string) {
-    Ok(v) => v,
-    Err(err) => {
-      return Err(ImportMapError::Other(format!(
-        "Unable to parse import map JSON: {}",
-        err,
-      )));
-    }
-  };
+  let v: Value =
+    serde_json::from_str(json_string).map_err(ImportMapErrorKind::JsonParse)?;
   parse_value(v, options, diagnostics)
 }
 
@@ -671,9 +694,7 @@ fn parse_value(
   match v {
     Value::Object(_) => {}
     _ => {
-      return Err(ImportMapError::Other(
-        "Import map JSON must be an object".to_string(),
-      ));
+      return Err(ImportMapErrorKind::ImportMapNotObject.into_box());
     }
   }
 
@@ -683,9 +704,7 @@ fn parse_value(
         parse_specifier_map_json(imports_map, None, options, diagnostics)
       }
       _ => {
-        return Err(ImportMapError::Other(
-          "Import map's 'imports' must be an object".to_string(),
-        ));
+        return Err(ImportMapErrorKind::ImportsFieldNotObject.into_box());
       }
     }
   } else {
@@ -698,9 +717,7 @@ fn parse_value(
         parse_scopes_map_json(scopes_map, options, diagnostics)?
       }
       _ => {
-        return Err(ImportMapError::Other(
-          "Import map's 'scopes' must be an object".to_string(),
-        ));
+        return Err(ImportMapErrorKind::ScopesFieldNotObject.into_box());
       }
     }
   } else {
@@ -769,10 +786,9 @@ fn parse_scopes_map_json(
     let potential_specifier_map = match potential_specifier_map.take() {
       Value::Object(obj) => obj,
       _ => {
-        return Err(ImportMapError::Other(format!(
-          "The value for the {:?} scope prefix must be an object",
-          scope_prefix
-        )));
+        return Err(
+          ImportMapErrorKind::ScopePrefixNotObject(scope_prefix).into_box(),
+        );
       }
     };
 
@@ -1047,10 +1063,12 @@ fn resolve_imports_match(
     if let Some(address) = &value.maybe_address {
       return Ok(Some(address.clone()));
     } else {
-      return Err(ImportMapError::Other(format!(
-        "Blocked by null entry for \"{:?}\"",
-        normalized_specifier
-      )));
+      return Err(
+        ImportMapErrorKind::BlockedByNullEntry(
+          normalized_specifier.to_string(),
+        )
+        .into_box(),
+      );
     }
   }
 
@@ -1073,10 +1091,7 @@ fn resolve_imports_match(
     }
 
     let resolution_result = value.maybe_address.as_ref().ok_or_else(|| {
-      ImportMapError::Other(format!(
-        "Blocked by null entry for \"{:?}\"",
-        specifier_key
-      ))
+      ImportMapErrorKind::BlockedByNullEntry(specifier_key.clone())
     })?;
 
     // Enforced by parsing.
@@ -1087,20 +1102,26 @@ fn resolve_imports_match(
     let url = match append_specifier_to_base(resolution_result, after_prefix) {
       Ok(url) => url,
       Err(_) => {
-        return Err(ImportMapError::Other(format!(
-          "Failed to resolve the specifier \"{:?}\" as its after-prefix
-            portion \"{:?}\" could not be URL-parsed relative to the URL prefix
-            \"{}\" mapped to by the prefix \"{}\"",
-          normalized_specifier, after_prefix, resolution_result, specifier_key
-        )));
+        return Err(
+          ImportMapErrorKind::SpecifierResolutionFailure {
+            specifier: normalized_specifier.to_string(),
+            after_prefix: after_prefix.to_string(),
+            resolution_result: resolution_result.clone(),
+            specifier_key: specifier_key.clone(),
+          }
+          .into_box(),
+        );
       }
     };
 
     if !url.as_str().starts_with(resolution_result.as_str()) {
-      return Err(ImportMapError::Other(format!(
-        "The specifier \"{:?}\" backtracks above its prefix \"{:?}\"",
-        normalized_specifier, specifier_key
-      )));
+      return Err(
+        ImportMapErrorKind::SpecifierBacktracksAbovePrefix {
+          specifier: normalized_specifier.to_string(),
+          specifier_key: specifier_key.clone(),
+        }
+        .into_box(),
+      );
     }
 
     return Ok(Some(url));
