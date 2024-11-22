@@ -3,12 +3,14 @@
 use thiserror::Error;
 use url::Url;
 
-#[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[derive(Debug, Error, Clone, PartialEq, Eq, deno_error::JsError)]
 pub enum SpecifierError {
   // don't make this error a source because it's short
   // and that causes unnecessary verbosity
+  #[class(inherit)]
   #[error("invalid URL: {0}")]
   InvalidUrl(url::ParseError),
+  #[class(type)]
   #[error(
     "Relative import path \"{specifier}\" not prefixed with / or ./ or ../"
   )]
