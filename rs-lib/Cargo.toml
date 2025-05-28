@@ -22,7 +22,7 @@ serde_json = { version = "1.0.111", features = ["preserve_order"] }
 url = { version = "2.3.1", features = ["serde"] }
 log = { version = "0.4.14", optional = true }
 thiserror = "2"
-deno_error = { version = "0.5.1", features = ["serde", "serde_json", "url"] }
+deno_error = { version = "0.6.0", features = ["serde", "serde_json", "url"] }
 boxed_error = "0.2.3"
 
 [dev-dependencies]
