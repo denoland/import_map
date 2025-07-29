@@ -1,6 +1,6 @@
 [package]
 name = "import_map_wasm"
-version = "0.21.0"
+version = "0.22.0"
 edition = "2021"
 description = "An implementation of WICG Import Maps specification"
 homepage = "https://deno.land/"
