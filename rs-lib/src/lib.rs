@@ -346,6 +346,20 @@ impl Debug for ImportMapOptions {
   }
 }
 
+#[derive(Default)]
+#[non_exhaustive]
+pub struct ResolveOptions {
+  only_remapped: bool,
+}
+impl ResolveOptions {
+  /// If set - `ImportMap::resolve_with` should not return any result
+  /// if the specifier was not remapped.
+  pub fn only_remapped(mut self) -> Self {
+    self.only_remapped = true;
+    self
+  }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportMap {
   #[serde(skip)]
@@ -422,6 +436,15 @@ impl ImportMap {
     specifier: &str,
     referrer: &Url,
   ) -> Result<Url, ImportMapError> {
+    self.resolve_with(specifier, referrer, &ResolveOptions::default())
+  }
+
+  pub fn resolve_with(
+    &self,
+    specifier: &str,
+    referrer: &Url,
+    opts: &ResolveOptions,
+  ) -> Result<Url, ImportMapError> {
     let as_url: Option<Url> = try_url_like_specifier(specifier, referrer);
     let normalized_specifier = if let Some(url) = as_url.as_ref() {
       url.to_string()
@@ -453,8 +476,10 @@ impl ImportMap {
     }
 
     // The specifier was able to be turned into a URL, but wasn't remapped into anything.
-    if let Some(as_url) = as_url {
-      return Ok(as_url);
+    if !opts.only_remapped {
+      if let Some(as_url) = as_url {
+        return Ok(as_url);
+      }
     }
 
     Err(
