@@ -3,15 +3,18 @@
 use indexmap::IndexMap;
 use serde_json::Map;
 use serde_json::Value;
-use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
 use thiserror::Error;
 use url::Url;
 
+use self::merge::code_unit_compare;
+use self::merge::MergeDiagnostic;
+
 #[cfg(feature = "ext")]
 pub mod ext;
+pub mod merge;
 pub mod specifier;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,6 +25,7 @@ pub enum ImportMapDiagnostic {
   InvalidAddress(String, String),
   InvalidAddressNotString(String, String),
   InvalidTopLevelKey(String),
+  Merge(Box<MergeDiagnostic>),
 }
 
 impl fmt::Display for ImportMapDiagnostic {
@@ -57,6 +61,9 @@ impl fmt::Display for ImportMapDiagnostic {
       }
       ImportMapDiagnostic::InvalidTopLevelKey(key) => {
         write!(f, "Invalid top-level key \"{}\". Only \"imports\" and \"scopes\" can be present.", key)
+      }
+      ImportMapDiagnostic::Merge(merge) => {
+        write!(f, "Due to merge: {merge}")
       }
     }
   }
@@ -130,6 +137,7 @@ struct SpecifierMapValue {
   raw_key: Option<String>,
   /// The raw value if it differs from the actual value.
   raw_value: Option<String>,
+  /// None in case of block by null entry
   maybe_address: Option<Url>,
 }
 
@@ -199,6 +207,7 @@ type SpecifierMapInner = IndexMap<String, SpecifierMapValue>;
 
 #[derive(Debug, Clone)]
 pub struct SpecifierMap {
+  #[deprecated = "import map base_url doesn't work with merged import maps"]
   base_url: Url,
   inner: SpecifierMapInner,
 }
@@ -221,6 +230,8 @@ impl SpecifierMap {
     })
   }
 
+  #[deprecated = "specifier map base_url doesn't work with merged import maps"]
+  #[allow(deprecated)]
   pub fn contains(&self, key: &str) -> bool {
     if let Ok(key) = normalize_specifier_key(key, &self.base_url) {
       self.inner.contains_key(&key)
@@ -229,6 +240,8 @@ impl SpecifierMap {
     }
   }
 
+  #[deprecated = "specifier map base_url doesn't work with merged import maps"]
+  #[allow(deprecated)]
   pub fn append(&mut self, key: String, value: String) -> Result<(), String> {
     let start_index = self
       .inner
@@ -280,12 +293,9 @@ impl SpecifierMap {
 
   fn sort(&mut self) {
     // Sort in longest and alphabetical order.
-    self.inner.sort_by(|k1, _v1, k2, _v2| match k1.cmp(k2) {
-      Ordering::Greater => Ordering::Less,
-      Ordering::Less => Ordering::Greater,
-      // index map guarantees that there can't be duplicate keys
-      Ordering::Equal => unreachable!(),
-    });
+    self
+      .inner
+      .sort_by(|k1, _v1, k2, _v2| code_unit_compare(k1, k2).reverse());
   }
 }
 
@@ -318,11 +328,27 @@ pub struct ImportMapWithDiagnostics {
   pub diagnostics: Vec<ImportMapDiagnostic>,
 }
 
+impl ImportMapWithDiagnostics {
+  pub fn merge(&mut self, new: ImportMapWithDiagnostics) {
+    let mut merge_diagnostics = vec![];
+    merge::merge(&mut self.import_map, new.import_map, &mut merge_diagnostics);
+
+    self.diagnostics.extend(
+      merge_diagnostics
+        .into_iter()
+        .map(Box::new)
+        .map(ImportMapDiagnostic::Merge),
+    );
+    // Should diagnostics ignored due to merge be dropped?
+    self.diagnostics.extend(new.diagnostics);
+  }
+}
+
 #[derive(Default)]
 pub struct ImportMapOptions {
   /// `(parsed_address, key, maybe_scope) -> new_address`
   #[allow(clippy::type_complexity)]
-  pub address_hook: Option<Box<dyn (Fn(&str, &str, Option<&str>) -> String)>>,
+  pub address_hook: Option<Box<dyn Fn(&str, &str, Option<&str>) -> String>>,
   /// Whether to expand imports in the import map.
   ///
   /// This functionality can be used to modify the import map
@@ -346,8 +372,23 @@ impl Debug for ImportMapOptions {
   }
 }
 
+#[derive(Default)]
+#[non_exhaustive]
+pub struct ResolveOptions {
+  only_remapped: bool,
+}
+impl ResolveOptions {
+  /// If set - `ImportMap::resolve_with` should not return any result
+  /// if the specifier was not remapped.
+  pub fn only_remapped(mut self) -> Self {
+    self.only_remapped = true;
+    self
+  }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportMap {
+  #[deprecated = "specifier map base_url doesn't work with merged import maps"]
   #[serde(skip)]
   base_url: Url,
 
@@ -356,6 +397,7 @@ pub struct ImportMap {
 }
 
 impl ImportMap {
+  #[allow(deprecated)]
   pub fn new(base_url: Url) -> Self {
     Self {
       base_url: base_url.clone(),
@@ -367,6 +409,8 @@ impl ImportMap {
     }
   }
 
+  #[deprecated = "import map base_url doesn't work with merged import maps"]
+  #[allow(deprecated)]
   pub fn base_url(&self) -> &Url {
     &self.base_url
   }
@@ -422,6 +466,15 @@ impl ImportMap {
     specifier: &str,
     referrer: &Url,
   ) -> Result<Url, ImportMapError> {
+    self.resolve_with(specifier, referrer, &ResolveOptions::default())
+  }
+
+  pub fn resolve_with(
+    &self,
+    specifier: &str,
+    referrer: &Url,
+    opts: &ResolveOptions,
+  ) -> Result<Url, ImportMapError> {
     let as_url: Option<Url> = try_url_like_specifier(specifier, referrer);
     let normalized_specifier = if let Some(url) = as_url.as_ref() {
       url.to_string()
@@ -453,8 +506,10 @@ impl ImportMap {
     }
 
     // The specifier was able to be turned into a URL, but wasn't remapped into anything.
-    if let Some(as_url) = as_url {
-      return Ok(as_url);
+    if !opts.only_remapped {
+      if let Some(as_url) = as_url {
+        return Ok(as_url);
+      }
     }
 
     Err(
@@ -482,6 +537,8 @@ impl ImportMap {
     })
   }
 
+  #[deprecated = "import map base_url doesn't work with merged import maps"]
+  #[allow(deprecated)]
   pub fn get_or_append_scope_mut(
     &mut self,
     key: &str,
@@ -514,6 +571,7 @@ impl ImportMap {
               Some(key.to_string())
             },
             imports: SpecifierMap {
+              #[allow(deprecated)]
               base_url,
               inner: Default::default(),
             },
@@ -617,6 +675,7 @@ pub fn parse_from_json_with_options(
     parse_specifier_map(unresolved_imports, &base_url, &mut diagnostics);
   let scopes = parse_scope_map(unresolved_scopes, &base_url, &mut diagnostics)?;
 
+  #[allow(deprecated)]
   Ok(ImportMapWithDiagnostics {
     diagnostics,
     import_map: ImportMap {
@@ -646,6 +705,7 @@ pub fn parse_from_value_with_options(
     parse_specifier_map(unresolved_imports, &base_url, &mut diagnostics);
   let scopes = parse_scope_map(unresolved_scopes, &base_url, &mut diagnostics)?;
 
+  #[allow(deprecated)]
   Ok(ImportMapWithDiagnostics {
     diagnostics,
     import_map: ImportMap {
@@ -866,13 +926,10 @@ fn parse_specifier_map(
   }
 
   // Sort in longest and alphabetical order.
-  normalized_map.sort_by(|k1, _v1, k2, _v2| match k1.cmp(k2) {
-    Ordering::Greater => Ordering::Less,
-    Ordering::Less => Ordering::Greater,
-    // JSON guarantees that there can't be duplicate keys
-    Ordering::Equal => unreachable!(),
-  });
+  normalized_map
+    .sort_by(|k1, _v1, k2, _v2| code_unit_compare(k1, k2).reverse());
 
+  #[allow(deprecated)]
   SpecifierMap {
     inner: normalized_map,
     base_url: base_url.clone(),
@@ -923,12 +980,8 @@ fn parse_scope_map(
   }
 
   // Sort in longest and alphabetical order.
-  normalized_map.sort_by(|k1, _v1, k2, _v2| match k1.cmp(k2) {
-    Ordering::Greater => Ordering::Less,
-    Ordering::Less => Ordering::Greater,
-    // JSON guarantees that there can't be duplicate keys
-    Ordering::Equal => unreachable!(),
-  });
+  normalized_map
+    .sort_by(|k1, _v1, k2, _v2| code_unit_compare(k1, k2).reverse());
 
   Ok(normalized_map)
 }
@@ -1137,6 +1190,7 @@ fn resolve_imports_match(
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod test {
   use super::*;
   use pretty_assertions::assert_eq;
@@ -1154,6 +1208,7 @@ mod test {
       },
     );
     let specifiers = SpecifierMap {
+      #[allow(deprecated)]
       base_url: Url::parse("file:///").unwrap(),
       inner: specifiers,
     };
@@ -1173,6 +1228,7 @@ mod test {
       },
     );
     let specifiers = SpecifierMap {
+      #[allow(deprecated)]
       base_url: Url::parse("file:///").unwrap(),
       inner: specifiers,
     };
@@ -1199,6 +1255,7 @@ mod test {
       },
     );
     let specifiers = SpecifierMap {
+      #[allow(deprecated)]
       base_url: Url::parse("file:///").unwrap(),
       inner: specifiers,
     };
