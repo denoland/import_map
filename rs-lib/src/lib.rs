@@ -397,12 +397,11 @@ pub struct ImportMap {
 }
 
 impl ImportMap {
+  #[allow(deprecated)]
   pub fn new(base_url: Url) -> Self {
     Self {
-      #[allow(deprecated)]
       base_url: base_url.clone(),
       imports: SpecifierMap {
-        #[allow(deprecated)]
         base_url,
         inner: Default::default(),
       },
@@ -676,10 +675,10 @@ pub fn parse_from_json_with_options(
     parse_specifier_map(unresolved_imports, &base_url, &mut diagnostics);
   let scopes = parse_scope_map(unresolved_scopes, &base_url, &mut diagnostics)?;
 
+  #[allow(deprecated)]
   Ok(ImportMapWithDiagnostics {
     diagnostics,
     import_map: ImportMap {
-      #[allow(deprecated)]
       base_url,
       imports,
       scopes,
@@ -706,10 +705,10 @@ pub fn parse_from_value_with_options(
     parse_specifier_map(unresolved_imports, &base_url, &mut diagnostics);
   let scopes = parse_scope_map(unresolved_scopes, &base_url, &mut diagnostics)?;
 
+  #[allow(deprecated)]
   Ok(ImportMapWithDiagnostics {
     diagnostics,
     import_map: ImportMap {
-      #[allow(deprecated)]
       base_url,
       imports,
       scopes,
@@ -930,9 +929,9 @@ fn parse_specifier_map(
   normalized_map
     .sort_by(|k1, _v1, k2, _v2| code_unit_compare(k1, k2).reverse());
 
+  #[allow(deprecated)]
   SpecifierMap {
     inner: normalized_map,
-    #[allow(deprecated)]
     base_url: base_url.clone(),
   }
 }
@@ -1191,6 +1190,7 @@ fn resolve_imports_match(
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod test {
   use super::*;
   use pretty_assertions::assert_eq;
