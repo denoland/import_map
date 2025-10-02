@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. All rights reserved. MIT license.
 
 use indexmap::IndexMap;
 use serde_json::Map;
@@ -69,7 +69,7 @@ pub struct ImportMapError(pub Box<ImportMapErrorKind>);
 #[class(type)]
 pub enum ImportMapErrorKind {
   #[error(
-    "Relative import path \"{}\" not prefixed with / or ./ or ../ and not in import map{}",
+    "Import \"{}\" not a dependency and not in import map{}",
     .0,
     .1.as_ref().map(|referrer| format!(" from \"{}\"", referrer)).unwrap_or_default(),
   )]

@@ -1,9 +1,10 @@
-// Copyright 2021-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2021-2025 the Deno authors. All rights reserved. MIT license.
 
 import {
   assertEquals,
   assertThrows,
-} from "https://deno.land/std@0.205.0/assert/mod.ts";
+  // deno-lint-ignore no-import-prefix
+} from "jsr:@std/assert@1.0.14";
 import { parseFromJson } from "../js/mod.ts";
 
 Deno.test({
@@ -26,7 +27,7 @@ Deno.test({
         importMap.resolve("notfound", "https://deno.land/x/oak/mod.ts");
       },
       Error,
-      "Relative import path",
+      "not a dependency",
     );
   },
 });
@@ -51,7 +52,7 @@ Deno.test({
         importMap.resolve("notfound", "https://deno.land/x/oak/mod.ts");
       },
       Error,
-      "Relative import path",
+      "not a dependency",
     );
   },
 });
@@ -78,7 +79,7 @@ Deno.test({
         importMap.resolve("@std/assert/test", "https://deno.land/x/oak/mod.ts");
       },
       Error,
-      "Relative import path",
+      "not a dependency",
     );
   },
 });
