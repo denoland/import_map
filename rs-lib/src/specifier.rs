@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 use thiserror::Error;
 use url::Url;
@@ -11,9 +11,7 @@ pub enum SpecifierError {
   #[error("invalid URL: {0}")]
   InvalidUrl(url::ParseError),
   #[class(type)]
-  #[error(
-    "Relative import path \"{specifier}\" not prefixed with / or ./ or ../"
-  )]
+  #[error("Import \"{specifier}\" not a dependency")]
   ImportPrefixMissing {
     specifier: String,
     referrer: Option<Url>,

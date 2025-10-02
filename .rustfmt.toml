@@ -1,4 +1,4 @@
-# Copyright 2020-2023 the Deno authors. All rights reserved. MIT license.
+# Copyright 2020-2025 the Deno authors. All rights reserved. MIT license.
 max_width = 80
 tab_spaces = 2
 edition = "2021"
