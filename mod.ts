@@ -1,4 +1,4 @@
-// Copyright 2021-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2021-2025 the Deno authors. All rights reserved. MIT license.
 
 /**
  * Provides a [spec compliant](https://wicg.github.io/import-maps/)
