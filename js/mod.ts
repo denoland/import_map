@@ -7,14 +7,12 @@
  *
  * @module
  */
-import { instantiate, JsImportMap } from "./import_map.generated.js";
-
-let wasm: Awaited<ReturnType<typeof instantiate>> | undefined;
+import * as wasm from "./import_map.js";
 
 export class ImportMap {
-  #inner: JsImportMap;
+  #inner: wasm.JsImportMap;
 
-  constructor(inner: JsImportMap) {
+  constructor(inner: wasm.JsImportMap) {
     this.#inner = inner;
   }
 
@@ -38,12 +36,11 @@ export interface ImportMapJson {
 }
 
 /** Given a base and a JSON string with the contents of a import map,  */
-export async function parseFromJson(
+export function parseFromJson(
   baseUrl: string | URL,
   json: string | ImportMapJson,
   opts?: { expandImports?: boolean },
-): Promise<ImportMap> {
-  wasm = wasm ?? await instantiate();
+): ImportMap {
   if (baseUrl instanceof URL) {
     baseUrl = baseUrl.toString();
   }
