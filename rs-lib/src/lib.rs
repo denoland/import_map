@@ -13,11 +13,6 @@ use url::Url;
 #[cfg(feature = "ext")]
 pub mod ext;
 
-pub mod specifier {
-  pub use deno_path_util::resolve_import;
-  pub use deno_path_util::SpecifierError;
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportMapDiagnostic {
   EmptySpecifier,
