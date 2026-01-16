@@ -48,10 +48,7 @@ fn load_import_map_wpt_tests() -> Vec<String> {
       }
       false
     })
-    .filter_map(|e| match e {
-      Ok(e) => Some(e),
-      _ => None,
-    })
+    .filter_map(|e| e.ok())
     .map(|e| PathBuf::from(e.path()))
   {
     found_test_files.push(entry);

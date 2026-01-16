@@ -25,7 +25,7 @@ $ cargo test
 
 ## Opening a pull request
 
-1. Format code: `rustfmt ./src/lib.rs`
+1. Format code: `cargo fmt`
 
 2. Check that `clippy` doesn't produce warnings:
    `cargo clippy --all-targets --all-features --release -- -D clippy::all`

@@ -12,7 +12,6 @@ use url::Url;
 
 #[cfg(feature = "ext")]
 pub mod ext;
-pub mod specifier;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportMapDiagnostic {
@@ -322,7 +321,7 @@ pub struct ImportMapWithDiagnostics {
 pub struct ImportMapOptions {
   /// `(parsed_address, key, maybe_scope) -> new_address`
   #[allow(clippy::type_complexity)]
-  pub address_hook: Option<Box<dyn (Fn(&str, &str, Option<&str>) -> String)>>,
+  pub address_hook: Option<Box<dyn Fn(&str, &str, Option<&str>) -> String>>,
   /// Whether to expand imports in the import map.
   ///
   /// This functionality can be used to modify the import map

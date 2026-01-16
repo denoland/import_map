@@ -2,8 +2,10 @@
 /rs-lib/target
 /wasm/target
 /js/LICENSE
-/js/import_map_bg.wasm
-/js/import_map.generated.js
+/js/import_map.d.ts
+/js/import_map.js
+/js/import_map.internal.js
+/js/import_map.wasm
 
 *.orig
 *.pyc

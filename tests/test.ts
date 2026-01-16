@@ -9,8 +9,8 @@ import { parseFromJson } from "../js/mod.ts";
 
 Deno.test({
   name: "parseFromJson() - object import map",
-  async fn() {
-    const importMap = await parseFromJson(
+  fn() {
+    const importMap = parseFromJson(
       "file:///a/import-map.json",
       {
         imports: {
@@ -34,8 +34,8 @@ Deno.test({
 
 Deno.test({
   name: "parseFromJson() - JSON string",
-  async fn() {
-    const importMap = await parseFromJson(
+  fn() {
+    const importMap = parseFromJson(
       "file:///a/import-map.json",
       JSON.stringify({
         imports: {
@@ -59,8 +59,8 @@ Deno.test({
 
 Deno.test({
   name: "ImportMap - resolve() - jsr",
-  async fn() {
-    const importMap = await parseFromJson(
+  fn() {
+    const importMap = parseFromJson(
       "file:///a/import-map.json",
       {
         imports: {
@@ -86,8 +86,8 @@ Deno.test({
 
 Deno.test({
   name: "ImportMap - resolve() - jsr expand imports",
-  async fn() {
-    const importMap = await parseFromJson(
+  fn() {
+    const importMap = parseFromJson(
       "file:///a/import-map.json",
       {
         imports: {
