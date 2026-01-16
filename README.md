@@ -13,6 +13,9 @@ The implementation is tested against WPT test suite.
 ## Developing
 
 ```shell
+// checkout git submodules
+$ git submodule update --init --recursive
+
 // build all targets
 $ cargo build --all-targets
 
