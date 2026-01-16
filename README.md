@@ -13,9 +13,6 @@ The implementation is tested against WPT test suite.
 ## Developing
 
 ```shell
-// checkout git submodules
-$ git submodule update --init --recursive
-
 // build all targets
 $ cargo build --all-targets
 
@@ -25,7 +22,7 @@ $ cargo test
 
 ## Opening a pull request
 
-1. Format code: `rustfmt ./src/lib.rs`
+1. Format code: `cargo fmt`
 
 2. Check that `clippy` doesn't produce warnings:
    `cargo clippy --all-targets --all-features --release -- -D clippy::all`
